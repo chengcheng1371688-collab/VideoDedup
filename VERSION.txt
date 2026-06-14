@@ -1,0 +1,12 @@
+模式12 稳定版
+日期: 2026-06-15
+
+核心功能:
+- TRT RIFE 帧插值 (VapourSynth + TensorRT fp16)
+- AB softlight 包裹 (blend all_opacity 随机8%-15%)
+- 移动物理水印 (drawtext 10%透明度, 剧名动态提取)
+- 自适应32补边 (兼容1080p竖屏)
+- 伪时长注入 boost (60-180s 推流黄金区间)
+- 全模式耗时统计
+
+提交: f5102ed
