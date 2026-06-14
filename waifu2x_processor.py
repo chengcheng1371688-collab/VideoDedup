@@ -101,10 +101,11 @@ class Waifu2xProcessor:
                 return False
         
         print(f"  ✅ {model.upper()} 路径: {model_dir}")
-        
+
         ffmpeg_path = self.path / "ffmpeg_waifu2xEX.exe"
         if not ffmpeg_path.exists():
-            ffmpeg_path = "ffmpeg"
+            alt = Path(__file__).resolve().parent / "ffmpeg-2026-06-08-git-6028720d70-full_build/ffmpeg-2026-06-08-git-6028720d70-full_build/bin/ffmpeg.exe"
+            ffmpeg_path = str(alt) if alt.exists() else "ffmpeg"
 
         # 检测原始视频帧率（避免硬编码60fps）
         orig_fps = 30  # 默认值
@@ -211,15 +212,16 @@ class Waifu2xProcessor:
                 print(f"  ❌ {model} 处理异常: {str(e)}")
                 return False
             
-            # 步骤3: FFmpeg 合并帧为视频
-            out_fps = orig_fps * 2  # 2倍帧插值
+            # 步骤3: FFmpeg 合并帧为视频（用独立版FFmpeg，Waifu2x版不稳定）
+            out_fps = orig_fps * 2
             print(f"  [3/3] FFmpeg合并 {output_frames} 帧为视频 (原{orig_fps:.1f}fps → {out_fps:.1f}fps)...")
 
-            # 获取音频流
             frame_pattern_out = os.path.join(frames_out, "frame_%08d.png")
+            merge_ffmpeg = Path(__file__).resolve().parent / "ffmpeg-2026-06-08-git-6028720d70-full_build/ffmpeg-2026-06-08-git-6028720d70-full_build/bin/ffmpeg.exe"
+            merge_ffmpeg = str(merge_ffmpeg) if merge_ffmpeg.exists() else str(ffmpeg_path)
 
             cmd_merge = [
-                str(ffmpeg_path),
+                merge_ffmpeg,
                 '-framerate', f'{out_fps:.1f}',
                 '-i', frame_pattern_out,
                 '-c:v', 'libx264',
@@ -231,7 +233,7 @@ class Waifu2xProcessor:
 
             result_merge = subprocess.run(
                 cmd_merge,
-                stdout=subprocess.PIPE,
+                stdout=subprocess.DEVNULL,
                 stderr=subprocess.PIPE,
                 text=False,
                 timeout=600,

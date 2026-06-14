@@ -7,3 +7,4 @@ SPAN-ncnn-vulkan/
 __pycache__/
 *.mp4
 *.zip
+whisper/

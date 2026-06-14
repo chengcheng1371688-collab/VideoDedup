@@ -2,6 +2,9 @@
 统一入口脚本 - 视频去重工具
 支持: GPU加速、AI增强、标准处理、伪时长
 Ctrl+C=返回菜单
+规则: 所有新模式必须用 get_output_dir() 统一输出路径
+      所有耗时步骤必须有进度条
+      处理后视频必须写入 comment 元数据
 """
 import os
 import sys
@@ -30,10 +33,11 @@ def print_menu():
     print("  4. [自定义模式] 自定义参数 - 自由配置各项参数")
     print("  5. [伪时长模式] GPU加速 + 分段滤镜 + 伪时长注入（3~12秒）")
     print("  6. [正向伪时长] 模式5全部去重 + 推流加权伪时长 + 音频微调")
-    print("  7. [AB抽帧混合] 240fps, B帧随机池600, A帧I帧")
+    print("  7. [AB包裹+增强] softlight包裹 + Mode6全流程")
     print("  8. [批量合并] 父目录下所有子文件夹分别合并成一条视频")
-    print("  9. [RIFE+去重] RIFE帧插值 + Mode 6全流程")
+    print("  9. [RIFE+包裹] RIFE帧插值 + Mode 7 AB包裹")
     print("  10.[完全增强] RIFE + SPAN超分 + Mode 6全流程")
+    print("  11.[最强去重] RIFE + 音频改造 + 分段乱序 + AB包裹")
     print("-" * 40)
     print("")
 
@@ -181,8 +185,6 @@ def run_mode5(input_dir):
 
 def run_mode6(input_dir):
     """模式6: 模式5全部去重 + 推流加权伪时长(1~3分钟) + 音频微调"""
-    from video_processor_simple import find_best_ffmpeg
-    FFMPEG = find_best_ffmpeg()
     print("\n[模式 6] 推流加权模式")
     print("-" * 40)
     print("  区别于模式5:")
@@ -190,118 +192,15 @@ def run_mode6(input_dir):
     print("   · 短于1分钟 → 显示60~90秒（消除-10%降权）")
     print("   · 长于3分钟 → 显示120~180秒（消除-20%降权）")
     print("   · 1~3分钟区间 → 保持80~95%真实时长")
-    print("   · 🆕 Anime4K GPU 实时增强（线条锐化+降噪）")
     print("")
 
-    # 检查 Anime4K 可用性
-    a4k_exe = os.path.join(os.path.dirname(__file__),
-                           "完整包138/Waifu2x-Extension-GUI-v3.138.01-Win64/"
-                           "waifu2x-extension-gui/Anime4K/Anime4K_waifu2xEX.exe")
-    use_anime4k = os.path.exists(a4k_exe)
-
-    # 阶段1: 去重 → 有Anime4K时输出到临时目录，否则直接输出
-    import tempfile, shutil, time
-    if use_anime4k:
-        tmp_dir = tempfile.mkdtemp(prefix="mode6_")
-        # 临时修改 batch_process 输出到 tmp_dir（通过 hack get_output_dir）
-        # 直接改用内联处理
-        from video_processor_simple import VideoProcessor
-        video_ext = ('.mp4', '.mov', '.avi', '.mkv', '.flv', '.wmv')
-        video_files = []
-        for fn in os.listdir(input_dir):
-            if fn.lower().endswith(video_ext):
-                video_files.append(os.path.join(input_dir, fn))
-        video_files.sort(key=lambda s: [int(c) if c.isdigit() else c.lower() for c in __import__('re').split(r'(\d+)', s)])
-        # 先问输出目录，再处理
-        output_dir = get_output_dir(input_dir)
-
-        processed_paths = []
-        success_count = 0
-        for i, vp in enumerate(video_files, 1):
-            name = os.path.splitext(os.path.basename(vp))[0]
-            tmp_out = os.path.join(tmp_dir, f"{name}_tmp.mp4")
-            print(f"\n  [{i}/{len(video_files)}] 去重: {os.path.basename(vp)[:40]}")
-            proc = VideoProcessor(vp, tmp_out, {'use_gpu': True, 'aggressive': True, 'mode6': True})
-            if proc.run():
-                success_count += 1
-                processed_paths.append((vp, tmp_out, name))
-
-        if success_count == 0:
-            print("\n  ⚠️ 无成功，跳过后续")
-            shutil.rmtree(tmp_dir, ignore_errors=True)
-            return
-
-        # 阶段1.5: Anime4K 直接输出到最终目录
-        print("\n" + "=" * 50)
-        print("  阶段 1.5/3: Anime4K GPU 增强 → 最终输出")
-        print("=" * 50)
-        import subprocess
-        a4k_ok = 0
-        env = os.environ.copy()
-        ffmpeg_dir = os.path.join(os.path.dirname(__file__),
-                      "ffmpeg-2026-06-08-git-6028720d70-full_build",
-                      "ffmpeg-2026-06-08-git-6028720d70-full_build", "bin")
-        env['PATH'] = ffmpeg_dir + ';' + env.get('PATH', '')
-
-        for i, (orig_vp, tmp_vp, name) in enumerate(processed_paths, 1):
-            final_out = os.path.join(output_dir, f"{name}_去重.mp4")
-            in_size = os.path.getsize(tmp_vp)
-            t_start = time.time()
-            cmd = [a4k_exe, '-i', tmp_vp, '-o', final_out,
-                   '-v', '-q', '-M', 'opencl', '-Q', '2',
-                   '-f', '-b', '-a',
-                   '-p', '1', '-n', '2', '-c', '0.2', '-g', '0.5',
-                   '-z', '1.0', '-t', '8']
-            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE,
-                                    stderr=subprocess.PIPE, text=False,
-                                    env=env, creationflags=0x08000000)
-            try:
-                import psutil
-                p = psutil.Process(proc.pid)
-                p.nice(psutil.BELOW_NORMAL_PRIORITY_CLASS)
-            except: pass
-            while proc.poll() is None:
-                elapsed = time.time() - t_start
-                if os.path.exists(final_out):
-                    pct = min(99, int(os.path.getsize(final_out) / max(1, in_size * 1.8) * 100))
-                    sys.stdout.write(f"\r  [{i}/{success_count}] {name[:25]} | {pct}% [{elapsed:.0f}s]")
-                else:
-                    sys.stdout.write(f"\r  [{i}/{success_count}] {name[:25]} | 处理中 [{elapsed:.0f}s]")
-                sys.stdout.flush()
-                time.sleep(0.5)
-            proc.wait()
-            print()
-            if proc.returncode == 0 and os.path.exists(final_out):
-                # 注入元数据
-                subprocess.run(
-                    [FFMPEG, '-y', '-i', final_out,
-                     '-c', 'copy', '-movflags', '+faststart',
-                     '-metadata', 'comment=含AI生成内容；可能使用AI技术制作；可能含有AI生成内容',
-                     final_out + '.meta.mp4'],
-                    capture_output=True, text=False, timeout=120, creationflags=0x08000000)
-                if os.path.exists(final_out + '.meta.mp4'):
-                    os.replace(final_out + '.meta.mp4', final_out)
-                a4k_ok += 1
-                print(f"  ✅ [{i}/{success_count}] {name[:40]}")
-            else:
-                # Anime4K 失败则保留去重版本
-                shutil.copy2(tmp_vp, final_out)
-                print(f"  ⚠️ [{i}/{success_count}] Anime4K失败，保留去重版")
-        shutil.rmtree(tmp_dir, ignore_errors=True)
-        print(f"  Anime4K: {a4k_ok}/{success_count}")
-        processed_paths = [os.path.join(output_dir, f"{name}_去重.mp4") for _, _, name in processed_paths]
-
-    else:
-        # 无 Anime4K → 正常流程
-        print("=" * 50)
-        print("  阶段 1/2: GPU加速 + 强化去重")
-        print("=" * 50)
-        config = {'use_gpu': True, 'aggressive': True, 'mode6': True}
-        result = batch_process(input_dir, config)
-        success_count, output_dir, processed_paths = result
-        if success_count == 0:
-            return
-
+    # 阶段1: GPU加速 + 强化去重
+    print("=" * 50)
+    print("  阶段 1/2: GPU加速 + 强化去重")
+    print("=" * 50)
+    config = {'use_gpu': True, 'aggressive': True, 'mode6': True}
+    result = batch_process(input_dir, config)
+    success_count, output_dir, processed_paths = result
     if success_count == 0:
         return
 
@@ -329,18 +228,32 @@ def run_mode6(input_dir):
 
 
 def run_mode9(input_dir):
-    """模式9: RIFE帧插值 + Mode 6全流程"""
+    """模式9: RIFE帧插值 + Mode 7全流程"""
     from waifu2x_processor import Waifu2xProcessor
-    import tempfile, shutil
+    import tempfile, shutil, subprocess
 
-    print("\n[模式 9] RIFE插帧 + 去重增强")
+    print("\n[模式 9] RIFE插帧 + AB包裹增强")
     print("-" * 40)
     print("  阶段0: RIFE AI帧插值（2倍帧数）")
-    print("  阶段1: Mode 6去重增强")
+    print("  阶段1: Mode 7 AB包裹")
     print("  阶段2: 推流加权伪时长")
     print("")
 
-    # 阶段0: RIFE 插帧 → 临时目录
+    # B 素材目录
+    b_dir = safe_input("  请输入 B 素材目录路径: ").strip()
+    if not os.path.isdir(b_dir):
+        print("❌ B 素材目录无效")
+        return
+
+    # GPU
+    use_gpu = False
+    try:
+        import ctypes
+        ctypes.WinDLL('nvcuda.dll', mode=ctypes.RTLD_GLOBAL)
+        use_gpu = True
+    except: pass
+
+    # 阶段0: RIFE
     tmp_dir = tempfile.mkdtemp(prefix="rife_")
     video_ext = ('.mp4', '.mov', '.avi', '.mkv', '.flv', '.wmv')
     video_files = sorted(
@@ -348,106 +261,54 @@ def run_mode9(input_dir):
 
     w2x = Waifu2xProcessor()
     if not w2x.models.get('rife'):
-        print("  ❌ RIFE 模型不可用")
-        shutil.rmtree(tmp_dir, ignore_errors=True)
-        return
+        print("  ❌ RIFE 模型不可用"); shutil.rmtree(tmp_dir, ignore_errors=True); return
 
     interp_paths = []
     for i, vp in enumerate(video_files, 1):
         name = os.path.splitext(os.path.basename(vp))[0]
         tmp_out = os.path.join(tmp_dir, f"{name}_rife.mp4")
-        print(f"\n  [{i}/{len(video_files)}] RIFE插帧: {os.path.basename(vp)[:40]}")
-        ok = w2x.process(vp, tmp_out, mode='rife')
-        if ok:
+        print(f"\n  [{i}/{len(video_files)}] RIFE: {os.path.basename(vp)[:40]}")
+        if w2x.process(vp, tmp_out, mode='rife'):
             interp_paths.append((vp, tmp_out, name))
-        else:
-            print(f"    ⚠️ RIFE失败，跳过")
 
     if not interp_paths:
-        print("\n  ❌ 无成功插帧视频")
-        shutil.rmtree(tmp_dir, ignore_errors=True)
-        return
-    print(f"\n  RIFE插帧: {len(interp_paths)}/{len(video_files)}")
+        print("\n  ❌ 无成功"); shutil.rmtree(tmp_dir, ignore_errors=True); return
+    print(f"\n  RIFE: {len(interp_paths)}/{len(video_files)}")
 
-    # 阶段1+2: Mode 6流水线（复用 run_mode6 的逻辑）
-    a4k_exe = os.path.join(os.path.dirname(__file__),
-                           "完整包138/Waifu2x-Extension-GUI-v3.138.01-Win64/"
-                           "waifu2x-extension-gui/Anime4K/Anime4K_waifu2xEX.exe")
-    use_anime4k = os.path.exists(a4k_exe)
-    from video_processor_simple import find_best_ffmpeg, VideoProcessor
-    FFMPEG = find_best_ffmpeg()
+    # 阶段1: AB包裹
+    print("\n" + "=" * 50)
+    print("  阶段1/2: AB 包裹")
+    print("=" * 50)
+    b_files = sorted([os.path.join(b_dir,f) for f in os.listdir(b_dir) if f.lower().endswith(video_ext)])
+    if not b_files: print("❌ B目录无视频"); shutil.rmtree(tmp_dir, ignore_errors=True); return
+
     output_dir = get_output_dir(input_dir)
-
-    processed_paths = []
-    success_count = 0
-
+    from ab_processor import ab_blend
+    from progress_utils import ProgressBar
+    wrapped = 0; pbar = ProgressBar(len(interp_paths), "AB包裹")
     for i, (orig_vp, rife_vp, name) in enumerate(interp_paths, 1):
-        if use_anime4k:
-            # Anime4K 路径：去重→temp, Anime4K→final
-            tmp_de = os.path.join(tmp_dir, f"{name}_de.mp4")
-            proc = VideoProcessor(rife_vp, tmp_de, {'use_gpu': True, 'aggressive': True, 'mode6': True})
-            if proc.run():
-                final_out = os.path.join(output_dir, f"{name}_去重.mp4")
-                a4k_ok = False
-                if os.path.exists(a4k_exe):
-                    import subprocess, time
-                    env_a4k = os.environ.copy()
-                    env_a4k['PATH'] = os.path.join(os.path.dirname(__file__),
-                        "ffmpeg-2026-06-08-git-6028720d70-full_build/ffmpeg-2026-06-08-git-6028720d70-full_build/bin") + ';' + env_a4k.get('PATH', '')
-                    cmd_a4k = [a4k_exe, '-i', tmp_de, '-o', final_out,
-                               '-v', '-q', '-M', 'opencl', '-Q', '2', '-f', '-b', '-a',
-                               '-p', '1', '-n', '2', '-c', '0.2', '-g', '0.5', '-z', '1.0', '-t', '8']
-                    proc_a4k = subprocess.Popen(cmd_a4k, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                                text=False, env=env_a4k, creationflags=0x08000000)
-                    while proc_a4k.poll() is None:
-                        elapsed = time.time() - (time.time())
-                        sys.stdout.write(f"\r  Anime4K: {name[:25]} | 处理中")
-                        sys.stdout.flush(); time.sleep(0.5)
-                    proc_a4k.wait(); print()
-                    if proc_a4k.returncode == 0 and os.path.exists(final_out):
-                        a4k_ok = True
-                if not a4k_ok:
-                    shutil.copy2(tmp_de, final_out)
-                # 元数据
-                import subprocess
-                subprocess.run([FFMPEG, '-y', '-i', final_out, '-c', 'copy', '-movflags', '+faststart',
-                    '-metadata', 'comment=含AI生成内容；可能使用AI技术制作；可能含有AI生成内容',
-                    final_out + '.m.mp4'], capture_output=True, text=False, timeout=120, creationflags=0x08000000)
-                if os.path.exists(final_out + '.m.mp4'):
-                    os.replace(final_out + '.m.mp4', final_out)
-                success_count += 1
-                processed_paths.append(final_out)
-                print(f"  ✅ [{i}/{len(interp_paths)}] {name[:40]}")
-        else:
-            tmp_de = os.path.join(tmp_dir, f"{name}_de.mp4")
-            proc = VideoProcessor(rife_vp, tmp_de, {'use_gpu': True, 'aggressive': True, 'mode6': True})
-            if proc.run():
-                final_out = os.path.join(output_dir, f"{name}_去重.mp4")
-                shutil.copy2(tmp_de, final_out)
-                success_count += 1
-                processed_paths.append(final_out)
-
+        b_vp = b_files[i % len(b_files)]
+        final_out = os.path.join(output_dir, f"{name}_去重.mp4")
+        pbar.set_description(f"[{i}/{len(interp_paths)}] {name[:25]}")
+        if ab_blend(rife_vp, b_vp, final_out, use_gpu): wrapped += 1
+        pbar.update(1)
+    pbar.close()
     shutil.rmtree(tmp_dir, ignore_errors=True)
 
-    if success_count == 0:
-        return
+    if wrapped == 0: return
 
     # 阶段2: 伪时长
     print("\n" + "=" * 50)
-    print("  阶段2: 推流加权伪时长注入")
+    print("  阶段2/2: 推流加权伪时长注入")
     print("=" * 50)
     from pseudo_duration import apply_pseudo_duration
-    from progress_utils import ProgressBar
-    patch_ok = 0
-    pbar = ProgressBar(len(processed_paths), "伪时长")
-    for i, pp in enumerate(processed_paths, 1):
-        pbar.set_description(f"[{i}/{len(processed_paths)}] {os.path.basename(pp)[:30]}")
-        ok, _, _ = apply_pseudo_duration(pp, mode='boost')
-        if ok: patch_ok += 1
-        pbar.update(1)
-    pbar.close()
-    print(f"\n=== 模式9 完成 ===")
-    print(f"  成功: {success_count}/{len(video_files)}, 伪时长: {patch_ok}/{len(processed_paths)}")
+    patch_ok = 0; pbar2 = ProgressBar(wrapped, "伪时长")
+    for f in os.listdir(output_dir):
+        if f.endswith('_去重.mp4'):
+            if apply_pseudo_duration(os.path.join(output_dir, f), mode='boost')[0]: patch_ok += 1
+            pbar2.update(1)
+    pbar2.close()
+    print(f"\n=== 模式9 完成 === 成功: {wrapped}/{len(video_files)}, 伪时长: {patch_ok}/{wrapped}")
 
 
 def run_mode10(input_dir):
@@ -535,7 +396,7 @@ def run_mode10(input_dir):
     # 阶段1+2: Mode 6
     a4k_exe = os.path.join(os.path.dirname(__file__),
                            "完整包138/Waifu2x-Extension-GUI-v3.138.01-Win64/"
-                           "waifu2x-extension-gui/Anime4K/Anime4K_waifu2xEX.exe")
+                           "waifu2x-extension-gui/Mode6强化/Mode6强化_waifu2xEX.exe")
     use_anime4k = os.path.exists(a4k_exe)
     from video_processor_simple import find_best_ffmpeg, VideoProcessor
     FFMPEG2 = find_best_ffmpeg()
@@ -555,7 +416,7 @@ def run_mode10(input_dir):
                 sp = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                       text=False, env=env_a4k, creationflags=0x08000000)
                 while sp.poll() is None:
-                    sys.stdout.write(f"\r  Anime4K: {name[:25]} | 处理中"); sys.stdout.flush(); time.sleep(0.5)
+                    sys.stdout.write(f"\r  Mode6强化: {name[:25]} | 处理中"); sys.stdout.flush(); time.sleep(0.5)
                 sp.wait(); print()
                 if sp.returncode != 0 or not os.path.exists(final_out):
                     shutil.copy2(tmp_de, final_out)
@@ -587,11 +448,140 @@ def run_mode10(input_dir):
     print(f"  成功: {success_count}/{len(video_files)}, 伪时长: {patch_ok}/{len(processed_paths)}")
 
 
-def run_mode7(input_dir_a):
-    """模式7: AB抽帧混合 — 240fps底层帧混合"""
-    print("\n[模式 7] AB 抽帧混合模式")
+def run_mode11(input_dir):
+    """模式11: RIFE插帧 + 音频深度改造 + AB包裹 + 分段乱序"""
+    from waifu2x_processor import Waifu2xProcessor
+    import tempfile, shutil, random, subprocess
+
+    print("\n[模式 11] RIFE + 音频改造 + AB包裹 + 乱序")
     print("-" * 40)
-    print("  算法: 240fps, A帧12.5%, B帧随机池87.5%→平台编码器丢弃B噪点保留A")
+    print("  阶段0: RIFE AI帧插值（2倍帧数）")
+    print("  阶段1: 音频深度改造（音量/压缩/动态）")
+    print("  阶段2: 分段随机乱序重组")
+    print("  阶段3: AB softlight包裹")
+    print("  阶段4: 推流加权伪时长")
+    print("")
+
+    tmp_dir = tempfile.mkdtemp(prefix="m11_")
+    video_ext = ('.mp4', '.mov', '.avi', '.mkv', '.flv', '.wmv')
+    video_files = sorted([os.path.join(input_dir, f) for f in os.listdir(input_dir) if f.lower().endswith(video_ext)])
+    if not video_files: print("❌ 无视频"); return
+
+    # RIFE
+    print("=" * 50)
+    print("  阶段0/4: RIFE 帧插值")
+    print("=" * 50)
+    w2x = Waifu2xProcessor()
+    if not w2x.models.get('rife'): print("❌ RIFE不可用"); shutil.rmtree(tmp_dir, ignore_errors=True); return
+    from progress_utils import ProgressBar
+    rife_ok = []
+    pbar0 = ProgressBar(len(video_files), "RIFE插帧")
+    for i, vp in enumerate(video_files, 1):
+        name = os.path.splitext(os.path.basename(vp))[0]
+        tmp_rife = os.path.join(tmp_dir, f"{name}_rife.mp4")
+        pbar0.set_description(f"[{i}/{len(video_files)}] {os.path.basename(vp)[:30]}")
+        print(f"\n  [{i}/{len(video_files)}] RIFE: {os.path.basename(vp)[:40]}")
+        if w2x.process(vp, tmp_rife, mode='rife'): rife_ok.append((vp, tmp_rife, name))
+        pbar0.update(1)
+    pbar0.close()
+    if not rife_ok: print("❌ RIFE全失败"); shutil.rmtree(tmp_dir, ignore_errors=True); return
+
+    # 音频改造 + 分段乱序
+    print("\n" + "=" * 50)
+    print("  阶段1-2/4: 音频改造 + 分段乱序")
+    print("=" * 50)
+    pbar = ProgressBar(len(rife_ok), "音频+乱序")
+    shuffled_ok = []
+    for i, (orig_vp, rife_vp, name) in enumerate(rife_ok, 1):
+        tmp_final = os.path.join(tmp_dir, f"{name}_shuffled.mp4")
+        # 音频深度改造: 压缩+动态+音量随机化 + 采样率微调(改变声纹)
+        af = ("acompressor=threshold=0.1:ratio=4:attack=5:release=50,"
+              "volume='1+random(0)*0.3-0.15',"
+              "alimiter=limit=0.95,"
+              "aresample=44050,aresample=44100")
+        # 分段乱序: 拆分为随机段长，打乱重组
+        info = __import__('ab_processor').get_video_info(rife_vp)
+        dur = info['duration']
+        seg_count = max(3, int(dur / 8))  # 每8秒一段
+        seg_pts = [0]
+        for _ in range(seg_count - 1):
+            seg_pts.append(seg_pts[-1] + random.uniform(5, 15))
+        seg_pts.append(dur)
+        order = list(range(seg_count))
+        random.shuffle(order)
+        vf_parts = []; af_parts = []
+        for j, idx in enumerate(order):
+            st, et = seg_pts[idx], seg_pts[idx+1]
+            vf_parts.append(f"[0:v]trim=start={st:.1f}:end={et:.1f},setpts=PTS-STARTPTS[v{j}]")
+            af_parts.append(f"[0:a]atrim=start={st:.1f}:end={et:.1f},asetpts=PTS-STARTPTS,{af}[a{j}]")
+        vf_parts.append(''.join(f"[v{j}]" for j in range(seg_count)) + f"concat=n={seg_count}:v=1:a=0[outv]")
+        af_parts.append(''.join(f"[a{j}]" for j in range(seg_count)) + f"concat=n={seg_count}:v=0:a=1[outa]")
+        # 字幕区域微噪点: 底部15%加噪, 强度2, 破坏OCR提取
+        vf_parts.append("[outv]split[main][sub];"
+                        "[sub]crop=iw:ih*0.15:0:ih*0.85,noise=alls=2:allf=t,format=yuv420p[sub_noise];"
+                        "[main][sub_noise]overlay=0:ih*0.85[outv2]")
+        fc = ';'.join(vf_parts + af_parts)
+        FFM = __import__('ab_processor').FFMPEG
+        r = subprocess.run([FFM, '-y', '-i', rife_vp, '-filter_complex', fc, '-map', '[outv2]', '-map', '[outa]',
+                           '-c:v', 'libx264', '-crf', '23', '-preset', 'fast', '-c:a', 'aac', '-b:a', '192k',
+                           '-movflags', '+faststart', tmp_final],
+                          capture_output=True, creationflags=0x08000000, timeout=7200)
+        if r.returncode == 0: shuffled_ok.append((orig_vp, tmp_final, name))
+        else:
+            err = r.stderr.decode('utf-8', errors='ignore')[-200:] if r.stderr else '未知'
+            print(f"\n    ❌ 音频/乱序失败: {err}")
+        pbar.update(1)
+    pbar.close()
+    if not shuffled_ok: print("❌ 乱序全失败"); shutil.rmtree(tmp_dir, ignore_errors=True); return
+
+    # AB包裹
+    print("\n" + "=" * 50)
+    print("  阶段3/4: AB 包裹")
+    print("=" * 50)
+    b_dir = safe_input("  请输入 B 素材目录路径: ").strip()
+    if not os.path.isdir(b_dir): print("❌ B目录无效"); shutil.rmtree(tmp_dir, ignore_errors=True); return
+    use_gpu = False
+    try:
+        import ctypes
+        ctypes.WinDLL('nvcuda.dll', mode=ctypes.RTLD_GLOBAL)
+        use_gpu = True
+    except: pass
+    output_dir = get_output_dir(input_dir)
+    from ab_processor import ab_blend
+    wrapped = 0; pbar2 = ProgressBar(len(shuffled_ok), "AB包裹")
+    for i, (orig_vp, shuf_vp, name) in enumerate(shuffled_ok, 1):
+        b_files = sorted([os.path.join(b_dir,f) for f in os.listdir(b_dir) if f.lower().endswith(video_ext)])
+        b_vp = b_files[i % len(b_files)] if b_files else None
+        if not b_vp: continue
+        final_out = os.path.join(output_dir, f"{name}_M11.mp4")
+        pbar2.set_description(f"[{i}/{len(shuffled_ok)}] {name[:25]}")
+        if ab_blend(shuf_vp, b_vp, final_out, use_gpu): wrapped += 1
+        pbar2.update(1)
+    pbar2.close()
+
+    # 伪时长
+    if wrapped > 0:
+        from pseudo_duration import apply_pseudo_duration
+        pbar3 = ProgressBar(wrapped, "伪时长")
+        patch_ok = 0
+        for f in os.listdir(output_dir):
+            if f.endswith('_M11.mp4'):
+                if apply_pseudo_duration(os.path.join(output_dir, f), mode='boost')[0]: patch_ok += 1
+                pbar3.update(1)
+        pbar3.close()
+        print(f"  伪时长: {patch_ok}/{wrapped}")
+    shutil.rmtree(tmp_dir, ignore_errors=True)
+    print(f"\n=== 模式11 完成 === 成功: {wrapped}/{len(video_files)}")
+
+
+def run_mode7(input_dir_a):
+    """模式7: AB包裹叠加 + Mode6全流程增强"""
+    print("\n[模式 7] AB包裹增强模式")
+    print("-" * 40)
+    print("  算法: softlight包裹 + Mode6全流程增强")
+    print("  阶段1: AB softlight包裹 (B每帧微偏移,保鲜膜效果)")
+    print("  阶段2: Mode6强化 (黑边/呼吸/旋转/噪点/混响/Mode6强化)")
+    print("  阶段3: boost伪时长")
     print("")
 
     # B 素材目录
@@ -613,9 +603,66 @@ def run_mode7(input_dir_a):
     # 输出目录
     output_dir = get_output_dir(input_dir_a)
 
-    # 执行
+    # 阶段 1/2: AB 包裹
+    print("=" * 50)
+    print("  阶段 1/2: AB softlight 包裹")
+    print("=" * 50)
+    import tempfile, shutil
+    tmp_dir = tempfile.mkdtemp(prefix="ab7_")
     from ab_processor import batch_ab_process
-    batch_ab_process(input_dir_a, b_dir, output_dir, use_gpu)
+    ok_count, total = batch_ab_process(input_dir_a, b_dir, tmp_dir, use_gpu)
+
+    if ok_count == 0:
+        print("\n  ⚠️ AB 包裹无成功，跳过增强")
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+        return
+
+    # 阶段 2/2: Mode 6 增强（aggressive + Mode6强化 + 伪时长）
+    print("\n" + "=" * 50)
+    print("  阶段 2/2: Mode 6 强化增强")
+    print("=" * 50)
+    from video_processor_simple import VideoProcessor
+    from progress_utils import ProgressBar
+    import subprocess, time
+
+    ab_files = sorted([f for f in os.listdir(tmp_dir) if f.endswith('.mp4')])
+    success = 0
+    pbar = ProgressBar(len(ab_files), "Mode6增强")
+    for i, fn in enumerate(ab_files, 1):
+        name = os.path.splitext(fn)[0].replace('_AB叠加', '')
+        tmp_ab = os.path.join(tmp_dir, fn)
+        final_out = os.path.join(output_dir, f"{name}_AB去重.mp4")
+        pbar.set_description(f"[{i}/{len(ab_files)}] {name[:25]}")
+
+        # 去重 → 直接输出
+        proc = VideoProcessor(tmp_ab, final_out, {'use_gpu': use_gpu, 'aggressive': True, 'mode6': True})
+        if not proc.run():
+            pbar.update(1); continue
+
+        # 元数据
+        from video_processor_simple import find_best_ffmpeg
+        FFMPEG_META = find_best_ffmpeg()
+        subprocess.run([FFMPEG_META, '-y', '-i', final_out, '-c', 'copy', '-movflags', '+faststart',
+            '-metadata', 'comment=含AI生成内容；可能使用AI技术制作；可能含有AI生成内容',
+            final_out + '.m.mp4'], capture_output=True, text=False, timeout=120, creationflags=0x08000000)
+        if os.path.exists(final_out + '.m.mp4'): os.replace(final_out + '.m.mp4', final_out)
+        success += 1; pbar.update(1)
+    pbar.close()
+    shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    # 伪时长
+    if success > 0:
+        from pseudo_duration import apply_pseudo_duration
+        pbar2 = ProgressBar(success, "伪时长")
+        patch_ok = 0
+        for i, fn in enumerate(os.listdir(output_dir), 1):
+            if fn.endswith('_AB去重.mp4'):
+                pp = os.path.join(output_dir, fn)
+                if apply_pseudo_duration(pp, mode='boost')[0]: patch_ok += 1
+                pbar2.update(1)
+        pbar2.close()
+        print(f"  伪时长: {patch_ok}/{success}")
+    print(f"\n=== 模式7(叠加增强) 完成 === 成功: {success}/{total}")
 
 
 def run_mode8():
@@ -767,7 +814,7 @@ def batch_process_ai(input_dir, config):
     if AI_MODELS['real-cugan']:
         enhance_options.append(('real-cugan', 'Real-CUGAN 动漫超分'))
     if AI_MODELS['anime4k']:
-        enhance_options.append(('anime4k', 'Anime4K 画质增强'))
+        enhance_options.append(('anime4k', 'Mode6强化 画质增强'))
     if AI_MODELS['real-esrgan']:
         enhance_options.append(('real-esrgan', 'Real-ESRGAN 超分'))
     if AI_MODELS['esrgan']:
@@ -877,7 +924,7 @@ def main():
             print_menu()
 
             # 获取用户选择
-            choice = safe_input("请选择模式 (1/2/3/4/5/6/7/8/9/10): ").strip()
+            choice = safe_input("请选择模式 (1/2/3/4/5/6/7/8/9/10/11): ").strip()
 
             # 根据选择运行对应模式
             if choice == '1':
@@ -906,6 +953,8 @@ def main():
                 run_mode9(input_dir)
             elif choice == '10':
                 run_mode10(input_dir)
+            elif choice == '11':
+                run_mode11(input_dir)
             else:
                 print("无效选择，默认使用GPU加速模式")
                 run_gpu_mode(input_dir)
