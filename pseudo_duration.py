@@ -188,16 +188,13 @@ class Mp4DurationPatcher:
             # 正向伪时长：80%~95% 真实时长，保持"正常视频"分类
             self.fake_duration = self.real_duration * random.uniform(0.80, 0.95)
         elif mode == 'boost':
-            # 推流加权：将所有视频伪装到 1~3 分钟（平台权重最高区间）
-            if self.real_duration < 60:
-                # 短于1分钟的视频：伪装到 60~90 秒，消除 -10% 降权
-                self.fake_duration = random.uniform(60, 90)
-            elif self.real_duration > 180:
-                # 长于3分钟的视频：伪装到 120~180 秒，消除 -20% 降权
+            # 推流加权：所有视频统一伪装到 60~180 秒（1~3分钟黄金区间）
+            if self.real_duration > 180:
+                # 长于3分钟：伪装到 120~180 秒
                 self.fake_duration = random.uniform(120, 180)
             else:
-                # 已在 1~3 分钟区间：保持 80%~95%
-                self.fake_duration = self.real_duration * random.uniform(0.80, 0.95)
+                # 短于或等于3分钟：全部伪装到 60~180 秒
+                self.fake_duration = random.uniform(60, 180)
         else:
             # 随机 3~12 秒（模式5 激进伪装）
             self.fake_duration = random.uniform(3.0, 12.0)

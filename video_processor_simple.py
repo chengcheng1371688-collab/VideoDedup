@@ -60,6 +60,7 @@ class VideoProcessor:
         cmd = [ffprobe_path, '-v', 'error',
                '-select_streams', 'v:0', '-show_entries', 'stream=width,height,r_frame_rate,duration',
                '-of', 'csv=p=0', self.input_path]
+        dur_fallback = False  # 标记是否使用了不可信的回退值
         try:
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
             if result.returncode == 0 and result.stdout.strip():
@@ -69,10 +70,29 @@ class VideoProcessor:
                     num, den = map(int, data[2].split('/'))
                     fps = num / den if den != 0 else 30
                     dur = float(data[3])
-                    return {'width': w, 'height': h, 'fps': fps, 'duration': dur}
+                    return {'width': w, 'height': h, 'fps': fps, 'duration': dur, '_ok': True}
+                # stream duration 缺失，尝试容器级 duration
+                if len(data) >= 3:
+                    w, h = int(data[0]), int(data[1])
+                    num, den = map(int, data[2].split('/'))
+                    fps = num / den if den != 0 else 30
+                    try:
+                        r2 = subprocess.run(
+                            [ffprobe_path, '-v', 'error', '-show_entries', 'format=duration',
+                             '-of', 'csv=p=0', self.input_path],
+                            capture_output=True, text=True, timeout=10)
+                        if r2.returncode == 0 and r2.stdout.strip():
+                            dur = float(r2.stdout.strip())
+                            return {'width': w, 'height': h, 'fps': fps, 'duration': dur, '_ok': True}
+                    except:
+                        pass
+                    dur_fallback = True
         except:
             pass
-        return {'width': 1080, 'height': 1920, 'fps': 30, 'duration': 60}
+
+        # 回退值：force _ok=False 以触发 build_command 的 num_seg=1 保护
+        info = {'width': 1080, 'height': 1920, 'fps': 30, 'duration': 60, '_ok': not dur_fallback}
+        return info
 
     def _has_audio(self):
         ffprobe_path = self.ffmpeg_path.replace('ffmpeg_waifu2xEX.exe', 'ffprobe_waifu2xEX.exe')
@@ -143,7 +163,7 @@ class VideoProcessor:
         dur = info['duration']
         ow, oh = info['width'], info['height']
         ofps = info['fps']
-        
+
         # 分辨率映射
         if self.aggressive:
             # 强制 1200×2134，无论源视频分辨率
@@ -155,26 +175,31 @@ class VideoProcessor:
         else:
             tw, th = 648, 1085
         print(f"  分辨率: {ow}x{oh} -> {tw}x{th}")
-        
+
         # 帧率
         fps_f = random.uniform(0.90, 1.10)
         tfps = round(ofps * fps_f)
         tfps = max(23, min(62, tfps))
         print(f"  帧率: {ofps:.1f} -> {tfps}fps")
-        
-        # 分段
-        num_seg = max(1, min(10, random.randint(1, max(1, int(dur / 15)))))
-        if num_seg == 1:
+
+        # 分段（若 duration 来自回退值则强制单段，避免空段 concat 失败）
+        if not info.get('_ok', True):
+            num_seg = 1
             seg_pts = [0.0, dur]
+            print(f"  分段: {num_seg}段 (duration来自回退值)")
         else:
-            seg_pts = [0.0]
-            remain = dur
-            for i in range(num_seg - 1):
-                sd = random.uniform(15, min(60, remain - (num_seg - i - 1) * 15))
-                seg_pts.append(seg_pts[-1] + sd)
-                remain -= sd
-            seg_pts.append(dur)
-        print(f"  分段: {num_seg}段")
+            num_seg = max(1, min(10, random.randint(1, max(1, int(dur / 15)))))
+            if num_seg == 1:
+                seg_pts = [0.0, dur]
+            else:
+                seg_pts = [0.0]
+                remain = dur
+                for i in range(num_seg - 1):
+                    sd = random.uniform(15, min(60, remain - (num_seg - i - 1) * 15))
+                    seg_pts.append(seg_pts[-1] + sd)
+                    remain -= sd
+                seg_pts.append(dur)
+            print(f"  分段: {num_seg}段")
         
         # ===== 构建命令 =====
         self.ffmpeg_cmd = [self.ffmpeg_path]
