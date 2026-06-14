@@ -1,7 +1,7 @@
 """
 AB 像素融合处理器（模式7）
-每帧像素 = A + B×1~2% (blend addition)。B融入A体内，不分层。
-肉眼看不到B，但每一帧每个像素的MD5和指纹全变。
+每帧像素 = A + B×(2~3%), blend=addition, B每帧微偏移2~8px。
+B融入A体内不分层，肉眼无感，指纹全变。
 """
 import os, sys, subprocess, random, itertools
 from pathlib import Path
@@ -41,20 +41,21 @@ def get_video_info(video_path):
         return {'width':w,'height':h,'fps':fps,'duration':dur}
     except: return {'width':1080,'height':1920,'fps':30,'duration':60}
 
-def ab_overlay(video_a_path, video_b_path, output_path, use_gpu=False):
-    """A底层 + B顶层(1~2%透明度) = 画中画叠加"""
+def ab_blend(video_a_path, video_b_path, output_path, use_gpu=False):
+    """B像素融入A(2~3%) + 每帧微偏移2~8px"""
     info_a = get_video_info(video_a_path)
     info_b = get_video_info(video_b_path)
     w_a, h_a = info_a['width'], info_a['height']
-    opacity = random.uniform(0.01, 0.02)
+    opacity = random.uniform(0.02, 0.03)
     print(f"    A: {w_a}x{h_a}, {info_a['fps']:.0f}fps, {info_a['duration']:.0f}s")
     print(f"    B: {info_b['width']}x{info_b['height']}, 不透明度: {opacity*100:.1f}%")
 
-    # blend: B像素融入A像素，不分轨道，单帧融合
-    blend_opacity = f"{opacity:.4f}"
+    # overlay+alpha: B融入A, 每帧微偏移2~8px, 透明度2~3%
+    alpha_val = f"{opacity:.4f}"
     vf = (f"[1:v]scale={w_a}:{h_a}:force_original_aspect_ratio=decrease,"
-          f"pad={w_a}:{h_a}:(ow-iw)/2:(oh-ih)/2[b];"
-          f"[0:v][b]blend=all_mode=addition:all_opacity={blend_opacity}")
+          f"pad={w_a}:{h_a}:(ow-iw)/2:(oh-ih)/2,"
+          f"format=rgba,colorchannelmixer=aa={alpha_val}[ov];"
+          f"[0:v][ov]overlay=x='mod(n,6)':y='mod(n,8)':shortest=1")
 
     encoder = 'h264_nvenc' if use_gpu else 'libx264'
     enc_opts = ['-preset', 'p6', '-pix_fmt', 'yuv420p'] if use_gpu else ['-crf', '23', '-preset', 'fast', '-pix_fmt', 'yuv420p']
@@ -107,7 +108,7 @@ def batch_ab_process(a_dir, b_dir, output_dir, use_gpu=False):
         out_path = os.path.join(output_dir, f"{os.path.splitext(a_name)[0]}_AB叠加.mp4")
         pbar.set_description(f"[{i}/{len(pairs)}] {a_name[:25]}")
         print(f"\n  [{i}/{len(pairs)}] {a_name} + {os.path.basename(b_path)}")
-        ok = ab_overlay(a_path, b_path, out_path, use_gpu)
+        ok = ab_blend(a_path, b_path, out_path, use_gpu)
         if ok: success += 1; print(f"    ✅ {out_path}")
         pbar.update(1)
     pbar.close()
