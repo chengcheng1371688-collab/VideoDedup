@@ -4,6 +4,11 @@ import time
 import threading
 import os
 
+_gui_callback = None  # GUI 可设置回调: fn(current, total, desc)
+def set_gui_progress_callback(cb):
+    global _gui_callback
+    _gui_callback = cb
+
 try:
     sys.stdout.reconfigure(encoding='utf-8')
 except:
@@ -51,6 +56,10 @@ class ProgressBar:
         count_str = f"{self.current}/{self.total}"
         sys.stdout.write(f"\r  {self.desc} |{bar}| {pct_str} {count_str} [{elapsed:.0f}s<{eta_str}]")
         sys.stdout.flush()
+        # GUI 回调
+        if _gui_callback:
+            try: _gui_callback(self.current, self.total, self.desc)
+            except: pass
         
     def close(self):
         self.current = self.total

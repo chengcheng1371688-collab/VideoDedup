@@ -11,8 +11,14 @@ except: pass
 
 def _find_ffmpeg():
     base_dir = Path(__file__).resolve().parent
-    for p in [base_dir/"ffmpeg-2026-06-08-git-6028720d70-full_build/ffmpeg-2026-06-08-git-6028720d70-full_build/bin/ffmpeg.exe",
-              base_dir/"完整包138/Waifu2x-Extension-GUI-v3.138.01-Win64/waifu2x-extension-gui/ffmpeg_waifu2xEX.exe"]:
+    import glob as _glob
+    # 搜索本地全量版
+    for pat in ["ffmpeg-*-full_build/ffmpeg-*-full_build/bin/ffmpeg.exe",
+                "ffmpeg-*-full_build/bin/ffmpeg.exe"]:
+        m = sorted(_glob.glob(str(base_dir / pat)), reverse=True)
+        if m: return m[0]
+    # 回退 Waifu2x 自带版
+    for p in [base_dir/"完整包138/Waifu2x-Extension-GUI-v3.138.01-Win64/waifu2x-extension-gui/ffmpeg_waifu2xEX.exe"]:
         if p.exists(): return str(p)
     return "ffmpeg"
 
@@ -20,6 +26,14 @@ FFMPEG = _find_ffmpeg()
 CF = 0x08000000 if sys.platform == 'win32' else 0
 
 def _find_ffprobe():
+    import glob as _glob
+    base_dir = Path(__file__).resolve().parent
+    # 搜索全量版 ffprobe
+    for pat in ["ffmpeg-*-full_build/ffmpeg-*-full_build/bin/ffprobe.exe",
+                "ffmpeg-*-full_build/bin/ffprobe.exe"]:
+        m = sorted(_glob.glob(str(base_dir / pat)), reverse=True)
+        if m: return m[0]
+    # 回退 Waifu2x 版
     for p in [FFMPEG.replace("ffmpeg_waifu2xEX.exe","ffprobe_waifu2xEX.exe"),
               FFMPEG.replace("ffmpeg.exe","ffprobe.exe")]:
         if os.path.exists(p): return p
@@ -28,8 +42,8 @@ FFPROBE = _find_ffprobe()
 
 def get_video_info(video_path):
     cmd = [FFPROBE, '-v', 'error', '-select_streams', 'v:0',
-           '-show_entries', 'stream=width,height,r_frame_rate,duration',
-           '-show_entries', 'format=duration', '-of', 'csv=p=0', video_path]
+           '-show_entries', 'stream=width,height,r_frame_rate,duration:format=duration',
+           '-of', 'csv=p=0', video_path]
     try:
         r = subprocess.run(cmd, capture_output=True, text=False, timeout=60, creationflags=CF)
         parts = r.stdout.decode('utf-8', errors='ignore').strip().split(',')
@@ -40,6 +54,15 @@ def get_video_info(video_path):
         dur = float(parts[3]) if len(parts)>3 and parts[3] else (float(parts[4]) if len(parts)>4 else 0)
         return {'width':w,'height':h,'fps':fps,'duration':dur}
     except: return {'width':1080,'height':1920,'fps':30,'duration':60}
+
+def _meta_opts():
+    import random as _r, datetime as _dt
+    titles = ["生活记录", "日常分享", "精彩瞬间", "原创作品", "个人创作"]
+    days = _r.randint(-30, 30)
+    dt = (_dt.datetime.now() + _dt.timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%S")
+    return ["-metadata", f"title={_r.choice(titles)}_{_r.randint(100,999)}",
+            "-metadata", f"creation_time={dt}",
+            "-metadata", "comment=原创内容"]
 
 def ab_blend(video_a_path, video_b_path, output_path, use_gpu=False, codec=None, audio_path=None):
     """滤镜链: softlight→字幕噪点
@@ -56,6 +79,10 @@ def ab_blend(video_a_path, video_b_path, output_path, use_gpu=False, codec=None,
     # 预循环B素材：重编码而非 -c copy，确保 moov atom 覆盖全部帧
     dur_a = info_a.get('duration', 60)
     dur_b = max(1, info_b.get('duration', 1))
+    # 如果 A 视频的 get_video_info 返回了回退值（ffprobe 失败），
+    # 假定 A 很长，强制触发预循环以避免 filter_complex 崩溃
+    if dur_a == 60 and info_a.get('width') == 1080 and info_a.get('height') == 1920:
+        dur_a = max(dur_a, dur_b * 10)  # 假定 A 至少是 B 的 10 倍长
     b_input = video_b_path
     b_looped_temp = None
     if dur_b < dur_a:
@@ -135,7 +162,7 @@ def ab_blend(video_a_path, video_b_path, output_path, use_gpu=False, codec=None,
            '-shortest',
            '-movflags', '+faststart',
            '-map_metadata', '-1',
-           '-metadata', 'comment=含AI生成内容；可能使用AI技术制作；可能含有AI生成内容',
+           ] + _meta_opts() + ['-metadata', 'comment=原创内容',
            output_path]
 
     _ok = False  # 单出口标志
@@ -167,7 +194,7 @@ def ab_blend(video_a_path, video_b_path, output_path, use_gpu=False, codec=None,
                     '-shortest',
                     '-movflags', '+faststart',
                     '-map_metadata', '-1',
-                    '-metadata', 'comment=含AI生成内容；可能使用AI技术制作；可能含有AI生成内容',
+                    ] + _meta_opts() + ['-metadata', 'comment=原创内容',
                     output_path]
                 try:
                     r = subprocess.run(cmd_retry, capture_output=True, text=False, timeout=7200, creationflags=CF)
@@ -214,7 +241,7 @@ def ab_blend(video_a_path, video_b_path, output_path, use_gpu=False, codec=None,
                                  '-c:a', 'aac', '-b:a', '192k', '-shortest',
                                  '-movflags', '+faststart',
                                  '-map_metadata', '-1',
-                                 '-metadata', 'comment=含AI生成内容；可能使用AI技术制作；可能含有AI生成内容',
+                                 ] + _meta_opts() + ['-metadata', 'comment=原创内容',
                                  output_path]
                     r_ultra = subprocess.run(ultra_cmd, capture_output=True, text=False, timeout=7200, creationflags=CF)
                     if r_ultra.returncode == 0:

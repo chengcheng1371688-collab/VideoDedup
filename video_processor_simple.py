@@ -14,6 +14,9 @@ try:
 except:
     pass
 
+# Windows 无窗口标志
+_CF = 0x08000000 if sys.platform == 'win32' else 0
+
 GPU_AVAILABLE = False
 
 def detect_gpu():
@@ -60,9 +63,9 @@ class VideoProcessor:
         cmd = [ffprobe_path, '-v', 'error',
                '-select_streams', 'v:0', '-show_entries', 'stream=width,height,r_frame_rate,duration',
                '-of', 'csv=p=0', self.input_path]
-        dur_fallback = False  # 标记是否使用了不可信的回退值
+        dur_fallback = True  # 默认不可信，仅成功获取 duration 时置 False
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30, creationflags=_CF)
             if result.returncode == 0 and result.stdout.strip():
                 data = result.stdout.strip().split(',')
                 if len(data) >= 4:
@@ -80,7 +83,7 @@ class VideoProcessor:
                         r2 = subprocess.run(
                             [ffprobe_path, '-v', 'error', '-show_entries', 'format=duration',
                              '-of', 'csv=p=0', self.input_path],
-                            capture_output=True, text=True, timeout=10)
+                            capture_output=True, text=True, timeout=10, creationflags=_CF)
                         if r2.returncode == 0 and r2.stdout.strip():
                             dur = float(r2.stdout.strip())
                             return {'width': w, 'height': h, 'fps': fps, 'duration': dur, '_ok': True}
@@ -103,7 +106,7 @@ class VideoProcessor:
         cmd = [ffprobe_path, '-v', 'error', '-select_streams', 'a:0',
                '-show_entries', 'stream=codec_type', '-of', 'csv=p=0', self.input_path]
         try:
-            r = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            r = subprocess.run(cmd, capture_output=True, text=True, timeout=30, creationflags=_CF)
             return r.returncode == 0 and r.stdout.strip() != ''
         except:
             return False
@@ -165,9 +168,15 @@ class VideoProcessor:
         ofps = info['fps']
 
         # 分辨率映射
+        self._rand_w = None
+        self._rand_h = None
         if self.aggressive:
-            # 强制 1200×2134，无论源视频分辨率
             tw, th = 1200, 2134
+            # 最终输出随机 ±2% 抗判重
+            self._rand_w = random.randint(1180, 1220)
+            self._rand_h = random.randint(2090, 2170)
+            self._rand_w -= self._rand_w % 2
+            self._rand_h -= self._rand_h % 2
         elif (ow, oh) == (1080, 1920):
             tw, th = 720, 1280
         elif (ow, oh) == (720, 1280):
@@ -331,7 +340,9 @@ class VideoProcessor:
                 f"{base_cx}+round({amp_x}*sin(2*PI*t/{period}+{phase})):"
                 f"{base_cy}+round({amp_y}*sin(2*PI*t/{period}+{phase})),"
                 f"rotate={rot:.3f}*PI/180,"
-                f"noise=c0s=3:c1s=3:allf=t[outv]"
+                f"noise=c0s=3:c1s=3:allf=t"
+                + (f",scale={self._rand_w}:{self._rand_h}" if self._rand_w else "") +
+                f"[outv]"
             )
             print(f"  动态黑边: {border}px, "
                   f"缩放呼吸: {zoom_factor:.1%}±{amp_x}px/{amp_y}px "
@@ -403,7 +414,8 @@ class VideoProcessor:
                 self.ffmpeg_cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
-                timeout=600
+                timeout=600,
+                creationflags=_CF
             )
             if result.returncode == 0:
                 print(f"  ✅ 处理成功: {os.path.basename(self.output_path)}")

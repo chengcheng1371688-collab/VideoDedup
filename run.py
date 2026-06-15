@@ -29,6 +29,16 @@ def _fmt_time(seconds):
     m, s = divmod(int(seconds), 60)
     return f"{m}分{s}秒"
 
+def _meta_opts():
+    """随机元数据列：title(高留存) + creation_time(中留存) + comment(低留存)"""
+    import random as _r, datetime as _dt
+    titles = ['生活记录', '日常分享', '精彩瞬间', '原创作品', '个人创作']
+    days = _r.randint(-30, 30)
+    dt = (_dt.datetime.now() + _dt.timedelta(days=days)).strftime('%Y-%m-%dT%H:%M:%S')
+    return ['-metadata', f'title={_r.choice(titles)}_{_r.randint(100,999)}',
+            '-metadata', f'creation_time={dt}',
+            '-metadata', 'comment=原创内容']
+
 def print_menu():
     """打印菜单"""
     print("🎯 选择处理模式:")
@@ -45,20 +55,21 @@ def print_menu():
     print("  10.[完全增强] RIFE + SPAN超分 + Mode 6全流程")
     print("  11.[最强去重] RIFE + 音频改造 + 分段乱序 + AB包裹")
     print("  12.[极限效率] TRT RIFE + AB包裹 (VapourSynth+NVENC)")
+    print("  13.[一键合并去重] 模式8合并 + 模式12去重 全自动")
     print("-" * 40)
     print("")
 
 def check_environment():
     """检查环境"""
     from pathlib import Path
-    
+
     print("📊 环境检查...")
-    
+
     # FFmpeg
     waifu2x_ffmpeg = Path(__file__).parent / "完整包138" / "Waifu2x-Extension-GUI-v3.138.01-Win64" / "waifu2x-extension-gui" / "ffmpeg_waifu2xEX.exe"
     if waifu2x_ffmpeg.exists():
         print("  ✅ FFmpeg (Waifu2x版本)")
-    
+
     # GPU
     try:
         import ctypes
@@ -68,10 +79,10 @@ def check_environment():
     except:
         print("  ⚠️  GPU不可用 (将使用CPU)")
         gpu_available = False
-    
+
     # AI模型
     waifu2x_dir = Path(__file__).parent / "完整包138" / "Waifu2x-Extension-GUI-v3.138.01-Win64" / "waifu2x-extension-gui"
-    
+
     if waifu2x_dir.exists():
         models = [
             ("DAIN", waifu2x_dir / "dain-ncnn-vulkan"),
@@ -81,7 +92,7 @@ def check_environment():
         for name, path in models:
             if path.exists():
                 print(f"  ✅ {name} 可用")
-    
+
     print("")
     return gpu_available
 
@@ -89,7 +100,7 @@ def run_standard_mode(input_dir):
     """运行标准模式"""
     print("\n[模式 1] 标准处理模式")
     print("-" * 40)
-    
+
     # 使用纯CPU模式
     config = {'use_gpu': False}
     batch_process(input_dir, config)
@@ -98,7 +109,7 @@ def run_gpu_mode(input_dir):
     """运行GPU加速模式"""
     print("\n[模式 2] GPU加速模式")
     print("-" * 40)
-    
+
     # 使用GPU模式
     config = {'use_gpu': True}
     batch_process(input_dir, config)
@@ -107,7 +118,7 @@ def run_ai_mode(input_dir):
     """运行AI增强模式"""
     print("\n[模式 3] AI增强模式")
     print("-" * 40)
-    
+
     config = {'use_gpu': True, 'use_ai': True}
     batch_process(input_dir, config)
 
@@ -115,7 +126,7 @@ def run_custom_mode(input_dir):
     """运行自定义模式"""
     print("\n[模式 4] 自定义模式")
     print("-" * 40)
-    
+
     # 显示自定义选项
     print("请选择自定义配置:")
     print("  1. GPU加速 + 标准处理")
@@ -123,11 +134,11 @@ def run_custom_mode(input_dir):
     print("  3. 纯CPU + 标准处理")
     print("  4. 纯CPU + AI增强")
     print("")
-    
+
     choice = safe_input("请选择 (1/2/3/4): ").strip()
-    
+
     config = {}
-    
+
     if choice == '1':
         print("运行: GPU加速 + 标准处理")
         config = {'use_gpu': True, 'use_ai': False}
@@ -143,7 +154,7 @@ def run_custom_mode(input_dir):
     else:
         print("无效选择,使用默认配置")
         config = {'use_gpu': True}
-    
+
     batch_process(input_dir, config)
 
 
@@ -192,9 +203,6 @@ def run_mode5(input_dir):
     print(f"⏱️ [模式5] 总耗时: {_fmt_time(time.time() - t_batch)}")
 
 
-
-
-
 def run_mode6(input_dir):
     """模式6: 模式5全部去重 + 推流加权伪时长(1~3分钟) + 音频微调"""
     import time; t_batch = time.time()
@@ -241,9 +249,6 @@ def run_mode6(input_dir):
     print(f"⏱️ [模式6] 总耗时: {_fmt_time(time.time() - t_batch)}")
 
 
-
-
-
 def run_mode7(input_dir_a):
     """模式7: AB包裹叠加 + Mode6全流程增强"""
     import time; t_batch = time.time()
@@ -255,10 +260,13 @@ def run_mode7(input_dir_a):
     print("  阶段3: boost伪时长")
     print("")
 
-    b_dir = safe_input("  请输入 B 素材目录路径: ").strip()
+    if hasattr(sys.modules[__name__], '_gui_b_dir'):
+        b_dir = getattr(sys.modules[__name__], '_gui_b_dir')
+        print(f"  B素材: {b_dir} (GUI设置)")
+    else:
+        b_dir = safe_input("  请输入 B 素材目录路径: ").strip()
     if not os.path.isdir(b_dir):
-        print("❌ B 素材目录无效")
-        return
+        print("❌ B 素材目录无效"); return
 
     use_gpu = False
     try:
@@ -274,7 +282,7 @@ def run_mode7(input_dir_a):
     print("=" * 50)
     print("  阶段 1/2: AB softlight 包裹")
     print("=" * 50)
-    import tempfile, shutil
+    import tempfile, shutil, subprocess
     tmp_dir = tempfile.mkdtemp(prefix="ab7_")
     from ab_processor import batch_ab_process
     ok_count, total = batch_ab_process(input_dir_a, b_dir, tmp_dir, use_gpu)
@@ -290,6 +298,7 @@ def run_mode7(input_dir_a):
     from video_processor_simple import VideoProcessor
     from progress_utils import ProgressBar
 
+    from video_processor_simple import find_best_ffmpeg
     ab_files = sorted([f for f in os.listdir(tmp_dir) if f.endswith('.mp4')])
     success = 0
     pbar = ProgressBar(len(ab_files), "Mode6增强")
@@ -303,10 +312,8 @@ def run_mode7(input_dir_a):
         if not proc.run():
             pbar.update(1); continue
 
-        from video_processor_simple import find_best_ffmpeg
-        FFMPEG_META = find_best_ffmpeg()
-        subprocess.run([FFMPEG_META, '-y', '-i', final_out, '-c', 'copy', '-movflags', '+faststart',
-            '-metadata', 'comment=含AI生成内容;可能使用AI技术制作;可能含有AI生成内容',
+        subprocess.run([find_best_ffmpeg(), '-y', '-i', final_out, '-c', 'copy', '-movflags', '+faststart',
+            ] + _meta_opts() + ['-metadata', 'comment=原创内容',
             final_out + '.m.mp4'], capture_output=True, text=False, timeout=120, creationflags=0x08000000)
         if os.path.exists(final_out + '.m.mp4'): os.replace(final_out + '.m.mp4', final_out)
         success += 1; pbar.update(1)
@@ -327,18 +334,20 @@ def run_mode7(input_dir_a):
     print(f"⏱️ [模式7] 总耗时: {_fmt_time(time.time() - t_batch)}")
 
 
-
-
-
 def run_mode8():
     """模式8: 批量视频合并 - 自适应目录, 支持每文件夹一条/每N集一条, 纯合并不去重"""
     import time; t_batch = time.time()
-    import re, subprocess, tempfile, shutil
+    import re, subprocess, tempfile, shutil, threading
     from progress_utils import ProgressBar
 
     print("\n[模式 8] 批量视频合并")
     print("-" * 40)
-    dir_input = safe_input("\n  请输入目录路径: ").strip()
+    # GUI 可通过 _gui_dir 跳过交互
+    if hasattr(sys.modules[__name__], '_gui_dir'):
+        dir_input = getattr(sys.modules[__name__], '_gui_dir')
+        print(f"  目录: {dir_input} (GUI设置)")
+    else:
+        dir_input = safe_input("\n  请输入目录路径: ").strip()
     if not os.path.isdir(dir_input):
         print("❌ 无效目录"); return
 
@@ -392,19 +401,23 @@ def run_mode8():
     else:
         print("❌ 未找到视频文件"); return
 
-    # ── 合并模式 ──
-    print("\n  合并模式:")
-    print("    1. 所有集合并为一条视频")
-    print("    2. 每N集合为一条视频(如2集/3集)")
-    mode_choice = safe_input("  请选择 (1/2): ").strip()
-    merge_n = 1
-    if mode_choice == '2':
-        n_input = safe_input("  每几集合为一条? (输入数字): ").strip()
-        try: merge_n = max(1, int(n_input))
-        except: merge_n = 1
-    elif mode_choice != '1':
-        print("  无效选择, 默认合并为一条")
+    # ── 合并模式 (GUI 可通过 _gui_merge_n 跳过交互) ──
+    if hasattr(sys.modules[__name__], '_gui_merge_n'):
+        merge_n = getattr(sys.modules[__name__], '_gui_merge_n')
+        print(f"  合并模式: 每{merge_n}集合一条 (GUI设置)")
+    else:
+        print("\n  合并模式:")
+        print("    1. 所有集合并为一条视频")
+        print("    2. 每N集合为一条视频(如2集/3集)")
+        mode_choice = safe_input("  请选择 (1/2): ").strip()
         merge_n = 1
+        if mode_choice == '2':
+            n_input = safe_input("  每几集合为一条? (输入数字): ").strip()
+            try: merge_n = max(1, int(n_input))
+            except: merge_n = 1
+        elif mode_choice != '1':
+            print("  无效选择, 默认合并为一条")
+            merge_n = 1
 
     # ── GPU / FFmpeg ──
     use_gpu = False
@@ -430,15 +443,26 @@ def run_mode8():
     total_merged = 0
     pbar = ProgressBar(len(targets), "合并")
 
+    # 自然排序：按文件名中的数字排序，避免 "第10集" 排在 "第1集" 前面
+    def _natural_key(filepath):
+        import re as _re
+        name = os.path.basename(filepath)
+        parts = _re.split(r'(\d+)', name)
+        return [int(p) if p.isdigit() else p.lower() for p in parts]
+
     for si, (folder_name, folder_path) in enumerate(targets, 1):
         videos = sorted([os.path.join(folder_path, f) for f in os.listdir(folder_path)
-                        if f.lower().endswith(video_ext)])
+                        if f.lower().endswith(video_ext)], key=_natural_key)
         if not videos:
             pbar.update(1); continue
 
         # 提取剧名
         first_name = os.path.splitext(os.path.basename(videos[0]))[0]
-        show_name = first_name.rsplit(' - ', 1)[0].rsplit('-', 1)[0].strip()
+        # 提取剧名：兼容 "剧名 - 第N集" 和 "剧名1 (N)" 两种格式
+        show_name = re.sub(r'\s*[-–]\s*第?\d+.*$', '', first_name)  # "剧名 - 第4集" 格式
+        show_name = re.sub(r'\s*\(\d+\)\s*$', '', show_name)         # "剧名 (4)" 格式
+        show_name = re.sub(r'\d+$', '', show_name)                   # 去掉尾部数字
+        show_name = show_name.strip()
 
         # 分组
         total = len(videos)
@@ -464,47 +488,70 @@ def run_mode8():
             out_path = os.path.join(output_dir, out_name)
 
             if st == ed:
-                shutil.copy2(videos[st - 1], out_path)
+                # 单集也统一转码为 30fps 1080x1920
+                subprocess.run([ffmpeg_exe, '-y', '-i', videos[st - 1],
+                                '-r', '30', '-s', '1080x1920'] + enc_opts + [
+                                '-c:a', 'aac', '-b:a', '192k',
+                                '-movflags', '+faststart', out_path],
+                               capture_output=True, creationflags=CF, timeout=7200)
                 total_merged += 1
                 continue
 
-            # FFmpeg concat
+            # 诊断：打印待合并的文件信息
+            merge_files = videos[st-1:ed]
+            print(f"\n    📦 {out_name} (合并 {len(merge_files)} 个文件):")
+            for mf in merge_files:
+                print(f"       {os.path.basename(mf)}")
+
+            # FFmpeg concat（实时显示编码进度）
             concat_list = os.path.join(tempfile.gettempdir(), f"m8_concat_{os.getpid()}.txt")
             with open(concat_list, 'w', encoding='utf-8') as cf:
-                for idx in range(st - 1, ed):
-                    cf.write(f"file '{videos[idx].replace(chr(92), '/')}'\n")
+                for mf in merge_files:
+                    cf.write(f"file '{mf.replace(chr(92), '/')}'\n")
 
-            r = subprocess.run([ffmpeg_exe, '-y', '-f', 'concat', '-safe', '0',
-                                '-i', concat_list] + enc_opts + [
-                                '-c:a', 'aac', '-b:a', '192k',
-                                '-movflags', '+faststart',
-                                out_path],
-                               capture_output=True, creationflags=CF, timeout=7200)
+            proc = subprocess.Popen([ffmpeg_exe, '-y', '-fflags', '+genpts',
+                                     '-f', 'concat', '-safe', '0',
+                                     '-i', concat_list, '-map', '0:v', '-map', '0:a?',
+                                     '-r', '30', '-s', '1080x1920'] + enc_opts + [
+                                     '-c:a', 'aac', '-b:a', '192k',
+                                     '-movflags', '+faststart', '-stats',
+                                     out_path],
+                                    stderr=subprocess.PIPE, stdout=subprocess.DEVNULL,
+                                    creationflags=CF, text=False)
+            stderr_lines = []
+            def _read_stderr():
+                for line in iter(proc.stderr.readline, b''):
+                    decoded = line.decode('utf-8', errors='ignore').rstrip()
+                    if decoded:
+                        stderr_lines.append(decoded)
+                        # 只显示 FFmpeg 进度行 (frame=...)
+                        if 'frame=' in decoded:
+                            sys.stdout.write(f"\r    ⏳ {out_name} | {decoded.strip()}")
+                            sys.stdout.flush()
+            t = threading.Thread(target=_read_stderr, daemon=True)
+            t.start()
+            try:
+                proc.wait(timeout=7200)
+                t.join(timeout=2)
+            except subprocess.TimeoutExpired:
+                proc.kill(); t.join(timeout=1)
+                print(f"\n    ❌ 编码超时")
+                try: os.remove(concat_list)
+                except: pass
+                continue
             try: os.remove(concat_list)
             except: pass
 
-            if r.returncode == 0:
+            if proc.returncode == 0:
                 total_merged += 1
-                print(f"\n    ✅ {out_name}")
+                last = stderr_lines[-1] if stderr_lines else ''
+                print(f"\r    ✅ {out_name}  {last}")
             else:
-                err = r.stderr.decode('utf-8', errors='ignore')[-200:] if r.stderr else ''
+                err = '\n'.join(stderr_lines[-5:]) if stderr_lines else ''
                 print(f"\n    ❌ {out_name}: {err}")
 
         pbar.update(1)
     pbar.close()
-
-    # ── 伪时长 ──
-    if total_merged > 0:
-        from pseudo_duration import apply_pseudo_duration
-        out_files = sorted([os.path.join(output_dir, f) for f in os.listdir(output_dir)
-                           if f.endswith('_合并.mp4')])
-        if out_files:
-            pbar2 = ProgressBar(len(out_files), "伪时长"); patch_ok = 0
-            for fp in out_files:
-                if apply_pseudo_duration(fp, mode='boost')[0]: patch_ok += 1
-                pbar2.update(1)
-            pbar2.close()
-            print(f"  伪时长: {patch_ok}/{len(out_files)}")
 
     print(f"\n=== 模式8 完成 === 合并: {total_merged} 条")
     print(f"⏱️ [模式8] 总耗时: {_fmt_time(time.time() - t_batch)}")
@@ -523,10 +570,13 @@ def run_mode9(input_dir):
     print("")
 
     # B 素材目录
-    b_dir = safe_input("  请输入 B 素材目录路径: ").strip()
+    if hasattr(sys.modules[__name__], '_gui_b_dir'):
+        b_dir = getattr(sys.modules[__name__], '_gui_b_dir')
+        print(f"  B素材: {b_dir} (GUI设置)")
+    else:
+        b_dir = safe_input("  请输入 B 素材目录路径: ").strip()
     if not os.path.isdir(b_dir):
-        print("❌ B 素材目录无效")
-        return
+        print("❌ B 素材目录无效"); return
 
     # GPU
     use_gpu = False
@@ -595,9 +645,6 @@ def run_mode9(input_dir):
     print(f"⏱️ [模式9] 总耗时: {_fmt_time(time.time() - t_batch)}")
 
 
-
-
-
 def run_mode10(input_dir):
     """模式10: RIFE插帧 + SPAN超分 + Mode 6全流程"""
     from waifu2x_processor import Waifu2xProcessor
@@ -642,8 +689,12 @@ def run_mode10(input_dir):
     if not rife_ok:
         print("  ❌ 无成功"); shutil.rmtree(tmp_dir, ignore_errors=True); return
 
-    FFMPEG = os.path.join(os.path.dirname(__file__),
-              "ffmpeg-2026-06-08-git-6028720d70-full_build/ffmpeg-2026-06-08-git-6028720d70-full_build/bin/ffmpeg.exe")
+    # FFmpeg：搜索本地版本，找不到则用 PATH
+    import glob
+    FFMPEG = "ffmpeg"
+    for pat in ["ffmpeg-*-full_build/ffmpeg-*-full_build/bin/ffmpeg.exe", "ffmpeg-*-full_build/bin/ffmpeg.exe"]:
+        m = sorted(glob.glob(os.path.join(os.path.dirname(__file__), pat)), reverse=True)
+        if m: FFMPEG = m[0]; break
     span_ok = []
     for i, (orig_vp, rife_vp, name) in enumerate(rife_ok, 1):
         fi = os.path.join(tmp_dir, f"span_in_{i}")
@@ -707,7 +758,7 @@ def run_mode10(input_dir):
             else:
                 shutil.copy2(tmp_de, final_out)
             subprocess.run([FFMPEG2, '-y', '-i', final_out, '-c', 'copy', '-movflags', '+faststart',
-                '-metadata', 'comment=含AI生成内容;可能使用AI技术制作;可能含有AI生成内容',
+                ] + _meta_opts() + ['-metadata', 'comment=原创内容',
                 final_out + '.m.mp4'], capture_output=True, text=False, timeout=120, creationflags=0x08000000)
             if os.path.exists(final_out + '.m.mp4'): os.replace(final_out + '.m.mp4', final_out)
             success_count += 1; processed_paths.append(final_out)
@@ -731,9 +782,6 @@ def run_mode10(input_dir):
     print(f"\n=== 模式10 完成 ===")
     print(f"  成功: {success_count}/{len(video_files)}, 伪时长: {patch_ok}/{len(processed_paths)}")
     print(f"⏱️ [模式10] 总耗时: {_fmt_time(time.time() - t_batch)}")
-
-
-
 
 
 def run_mode11(input_dir):
@@ -820,7 +868,11 @@ def run_mode11(input_dir):
     print("\n" + "=" * 50)
     print("  阶段3/4: AB 包裹")
     print("=" * 50)
-    b_dir = safe_input("  请输入 B 素材目录路径: ").strip()
+    if hasattr(sys.modules[__name__], '_gui_b_dir'):
+        b_dir = getattr(sys.modules[__name__], '_gui_b_dir')
+        print(f"  B素材: {b_dir} (GUI设置)")
+    else:
+        b_dir = safe_input("  请输入 B 素材目录路径: ").strip()
     if not os.path.isdir(b_dir): print("❌ B目录无效"); shutil.rmtree(tmp_dir, ignore_errors=True); return
     use_gpu = False
     try:
@@ -855,12 +907,9 @@ def run_mode11(input_dir):
     print(f"⏱️ [模式11] 总耗时: {_fmt_time(time.time() - t_batch)}")
 
 
-
-
-
 def run_mode12(input_dir):
     """模式12: VapourSynth TRT RIFE + AB包裹 - 极限效率版"""
-    import tempfile, shutil, subprocess, time
+    import tempfile, shutil, subprocess, time, re, random
     from progress_utils import ProgressBar
     from ab_processor import ab_blend
     from video_processor_simple import VideoProcessor
@@ -874,9 +923,13 @@ def run_mode12(input_dir):
     print("")
 
     # B素材目录
-    b_dir = safe_input("  请输入 B 素材目录路径: ").strip()
+    if hasattr(sys.modules[__name__], '_gui_b_dir'):
+        b_dir = getattr(sys.modules[__name__], '_gui_b_dir')
+        print(f"  B素材: {b_dir} (GUI设置)")
+    else:
+        b_dir = safe_input("  请输入 B 素材目录路径: ").strip()
     if not os.path.isdir(b_dir):
-        print("❌ B 素材目录无效"); return
+        print(f"  ❌ B 素材目录无效: {b_dir}"); return
 
     use_gpu = False
     try:
@@ -954,12 +1007,15 @@ def run_mode12(input_dir):
             base_dir_fwd = os.path.dirname(__file__).replace('\\', '/')
             plugins_fwd = PLUGINS.replace('\\', '/')
             vp_fwd = vp.replace('\\', '/')
-            # ffindex 缓存到持久目录,避免源目录污染 + 下次重跑复用索引
+            # ffindex：先删旧索引再重建，避免 "index does not match" 错误
             ffindex_dir = os.path.join(os.path.dirname(__file__), "ffindex_cache")
             os.makedirs(ffindex_dir, exist_ok=True)
             ffindex_cache = os.path.join(ffindex_dir, os.path.basename(vp))
+            if os.path.exists(ffindex_cache):
+                os.remove(ffindex_cache)
             # CPU 线程自动检测,预留 2 核防死机
             cpu_threads = max(2, (os.cpu_count() or 4) - 2)
+            rand_fps = random.randint(57, 62)
             with open(vpy_script, 'w', encoding='utf-8') as f:
                 f.write(f'''
 import vapoursynth as vs, sys, os, math
@@ -980,7 +1036,7 @@ if orig_w != pad_w or orig_h != pad_h:
 src = core.resize.Bicubic(src, format=vs.RGBS, matrix_in_s="709")
 clip = RIFE(src, multi=2, model=RIFEModel.v4_6, backend=BackendV2.TRT(fp16=True, num_streams=1, workspace=4096))
 # 用源帧率×2 而非 clip.fps×2(RIFE 内部可能已翻倍,用 clip.fps 会翻两次 -> 音画不同步)
-clip = core.std.AssumeFPS(clip, fpsnum=src.fps.numerator * 2, fpsden=src.fps.denominator)
+clip = core.std.AssumeFPS(clip, fpsnum={rand_fps}, fpsden=1)
 # ── 切回原始尺寸 ──
 if orig_w != pad_w or orig_h != pad_h:
     clip = core.std.Crop(clip, right=pad_w - orig_w, bottom=pad_h - orig_h)
@@ -988,9 +1044,11 @@ clip = core.resize.Bicubic(clip, format=vs.YUV420P8, matrix_s="709")
 clip.set_output()
 ''')
             # 剧名水印：3%透明度移动式, XY周期互质避免时域预测优化
-            show_name = name.split(' - ')[0].split('-')[0].strip()
-            import re as _re
-            show_name = _re.sub(r'[:\'\"\\\\]', '', show_name)
+            show_name = re.sub(r'\s*[-–]\s*第?\d+.*$', '', name)  # "剧名 - 第N集"
+            show_name = re.sub(r'\s*\(\d+\)\s*$', '', show_name)   # "剧名 (N)"
+            show_name = re.sub(r'\d+$', '', show_name)             # 去尾部数字
+            show_name = show_name.strip()
+            show_name = re.sub(r'[:\'\"\\\\]', '', show_name)
             wm_text = '© ' + show_name
             # 检测可用中文字体（Windows 自带黑体）
             font_candidates = [
@@ -1006,9 +1064,18 @@ clip.set_output()
             if not fontfile:
                 print(f"    ⚠️ 未找到中文字体, 跳过水印")
             wm_available = bool(fontfile)
+            # 随机水印参数：每条视频路径不同，避免判重
+            wm_fs = random.randint(16, 20)
+            wm_op = random.uniform(0.08, 0.12)
+            wm_xa = random.uniform(0.30, 0.50)
+            wm_xf = random.uniform(0.10, 0.20)
+            wm_ya = random.uniform(0.20, 0.40)
+            wm_yf = random.uniform(0.15, 0.25)
+            wm_x0 = random.uniform(0.25, 0.35)
+            wm_y0 = random.uniform(0.30, 0.40)
             wm_filter = ("drawtext=text='" + wm_text + "'" + fontfile +
-                         ":fontsize=18:fontcolor=white@0.10:bordercolor=black@0.10:borderw=1:"
-                         "x=W*0.3+W*0.4*sin(t*0.15):y=H*0.35+H*0.3*cos(t*0.2)")
+                         f":fontsize={wm_fs}:fontcolor=white@{wm_op:.2f}:bordercolor=black@{wm_op:.2f}:borderw=1:"
+                         f"x=W*{wm_x0:.3f}+W*{wm_xa:.3f}*sin(t*{wm_xf:.3f}):y=H*{wm_y0:.3f}+H*{wm_ya:.3f}*cos(t*{wm_yf:.3f})")
 
             # 编码命令：有字体加水印, 无字体直接用基础命令
             if wm_available:
@@ -1152,14 +1219,411 @@ clip.set_output()
     print(f"⏱️ [模式12] 总耗时: {_fmt_time(time.time() - t_batch)}")
 
 
+def run_mode13(input_dir):
+    """模式13: 一键合并去重 — 模式8合并 + 模式12去重 全自动"""
+    import time, tempfile, shutil, subprocess, re, glob as _glob
+    t_batch = time.time()
 
+    print("\n[模式 13] 一键合并去重")
+    print("-" * 40)
+    print("  阶段0: 批量合并(模式8)")
+    print("  阶段1: TRT RIFE + AB包裹 + Mode6(模式12)")
+    print("  阶段2: 推流加权伪时长")
+    print("")
+
+    # ── 合并参数 ──
+    if hasattr(sys.modules[__name__], '_gui_merge_n'):
+        merge_n = getattr(sys.modules[__name__], '_gui_merge_n')
+        print(f"  合并模式: 每{merge_n}集合一条 (GUI设置)")
+    else:
+        print("  合并模式:")
+        print("    1. 所有集合并为一条视频")
+        print("    2. 每N集合为一条视频")
+        mc = safe_input("  请选择 (1/2): ").strip()
+        if mc == '2':
+            mi = safe_input("  每几集合为一条? (输入数字): ").strip()
+            try: merge_n = max(1, int(mi))
+            except: merge_n = 1
+        else: merge_n = 1
+
+    # ── B素材目录 ──
+    if hasattr(sys.modules[__name__], '_gui_b_dir'):
+        b_dir = getattr(sys.modules[__name__], '_gui_b_dir')
+        print(f"  B素材: {b_dir} (GUI设置)")
+    else:
+        b_dir = safe_input("  请输入 B 素材目录路径: ").strip()
+    if not os.path.isdir(b_dir):
+        print("❌ B 素材目录无效"); return
+
+    # ── GPU ──
+    use_gpu = False
+    try:
+        import ctypes
+        ctypes.WinDLL('nvcuda.dll', mode=ctypes.RTLD_GLOBAL)
+        use_gpu = True; print("  ✅ GPU 加速可用")
+    except: print("  ⚠️ GPU 不可用")
+
+    # ── FFmpeg ──
+    base = os.path.dirname(__file__)
+    ffmpeg_exe = "ffmpeg"
+    for pat in ["ffmpeg-*-full_build/ffmpeg-*-full_build/bin/ffmpeg.exe", "ffmpeg-*-full_build/bin/ffmpeg.exe"]:
+        m = sorted(_glob.glob(os.path.join(base, pat)), reverse=True)
+        if m: ffmpeg_exe = m[0]; break
+
+    # ── 子文件夹选择 ──
+    video_ext = ('.mp4', '.mov', '.avi', '.mkv', '.flv', '.wmv')
+    CF = 0x08000000
+    subdirs_raw = sorted([d for d in os.listdir(input_dir) if os.path.isdir(os.path.join(input_dir, d))])
+    subdirs_with_video = []
+    for sd in subdirs_raw:
+        sd_path = os.path.join(input_dir, sd)
+        if any(f.lower().endswith(video_ext) for f in os.listdir(sd_path)):
+            subdirs_with_video.append(sd)
+
+    if subdirs_with_video:
+        print(f"\n  检测到 {len(subdirs_with_video)} 个含视频的子文件夹:")
+        print(f"    [0] 全选")
+        for i, sd in enumerate(subdirs_with_video, 1):
+            print(f"    [{i}] {sd}")
+        if hasattr(sys.modules[__name__], '_gui_subdir_sel'):
+            sel = getattr(sys.modules[__name__], '_gui_subdir_sel')
+            print(f"\n  子文件夹选择: {sel} (GUI设置)")
+        else:
+            sel = safe_input("\n  输入序号 (0=全选, 1,3 或 1-3): ").strip()
+        selected = set()
+        for part in sel.replace('，', ',').split(','):
+            part = part.strip()
+            if '-' in part:
+                try:
+                    a, b = part.split('-', 1)
+                    for j in range(int(a.strip()), int(b.strip()) + 1): selected.add(j)
+                except: pass
+            elif part == '0':
+                selected = set(range(1, len(subdirs_with_video) + 1)); break
+            else:
+                try: selected.add(int(part))
+                except: pass
+        selected = sorted(s for s in selected if 1 <= s <= len(subdirs_with_video))
+        if not selected: print("❌ 未选中任何文件夹"); return
+        targets = [(subdirs_with_video[i-1], os.path.join(input_dir, subdirs_with_video[i-1])) for i in selected]
+    else:
+        targets = [(os.path.basename(input_dir), input_dir)]
+
+    # ── B素材列表 ──
+    b_files = sorted([os.path.join(b_dir, f) for f in os.listdir(b_dir) if f.lower().endswith(video_ext)])
+    if not b_files: print("❌ B素材目录无视频"); return
+
+    # ── 临时目录（存合并视频）──
+    merge_tmp = tempfile.mkdtemp(prefix="m13_merge_")
+    merged_files = []  # [(path, show_name, folder_path)]
+
+    from progress_utils import ProgressBar
+    pbar_m = ProgressBar(len(targets), "合并")
+    encoder = 'h264_nvenc' if use_gpu else 'libx264'
+    enc_opts = ['-c:v', encoder, '-preset', 'p1', '-pix_fmt', 'yuv420p'] if use_gpu else \
+               ['-c:v', 'libx264', '-crf', '23', '-preset', 'medium', '-pix_fmt', 'yuv420p']
+
+    def _natural_key(fp):
+        name = os.path.basename(fp)
+        parts = re.split(r'(\d+)', name)
+        return [int(p) if p.isdigit() else p.lower() for p in parts]
+
+    for si, (folder_name, folder_path) in enumerate(targets, 1):
+        videos = sorted([os.path.join(folder_path, f) for f in os.listdir(folder_path)
+                        if f.lower().endswith(video_ext)], key=_natural_key)
+        if not videos: pbar_m.update(1); continue
+
+        first_name = os.path.splitext(os.path.basename(videos[0]))[0]
+        show_name = re.sub(r'\s*[-–]\s*第?\d+.*$', '', first_name)
+        show_name = re.sub(r'\s*\(\d+\)\s*$', '', show_name)
+        show_name = re.sub(r'\d+$', '', show_name).strip()
+
+        total = len(videos)
+        if merge_n > 1 and total > merge_n:
+            groups = []; i = 0
+            while i < total:
+                remaining = total - i
+                if remaining < 2 * merge_n:
+                    groups.append(list(range(i + 1, total + 1))); break
+                else:
+                    groups.append(list(range(i + 1, i + merge_n + 1))); i += merge_n
+        else:
+            groups = [list(range(1, total + 1))]
+
+        pbar_m.set_description(f"[{si}/{len(targets)}] {folder_name[:20]}")
+        for grp in groups:
+            st, ed = grp[0], grp[-1]
+            out_name = f"{show_name}_{st}-{ed}_m13tmp.mp4" if st != ed else f"{show_name}_{st}_m13tmp.mp4"
+            out_path = os.path.join(merge_tmp, out_name)
+
+            if st == ed:
+                print(f"    ⏳ 编码中: {out_name}...", end='', flush=True)
+                mr = subprocess.run([ffmpeg_exe, '-y', '-i', videos[st - 1],
+                                '-r', '30', '-s', '1080x1920'] + enc_opts +
+                                ['-c:a', 'aac', '-b:a', '192k', '-movflags', '+faststart', out_path],
+                               capture_output=True, creationflags=CF, timeout=7200)
+                if mr.returncode == 0 and os.path.getsize(out_path) > 10000:
+                    merged_files.append((out_path, show_name, folder_path))
+                else:
+                    print(f"  ❌ 合并失败(返回码={mr.returncode})")
+            else:
+                merge_src = videos[st-1:ed]
+                print(f"    ⏳ 编码中: {out_name} ({len(merge_src)}个文件)...", end='', flush=True)
+                concat_list = os.path.join(tempfile.gettempdir(), f"m13_cat_{os.getpid()}.txt")
+                with open(concat_list, 'w', encoding='utf-8') as cf:
+                    for mf in merge_src:
+                        cf.write(f"file '{mf.replace(chr(92), '/')}'\n")
+                mr = subprocess.run([ffmpeg_exe, '-y', '-fflags', '+genpts', '-f', 'concat', '-safe', '0',
+                                '-i', concat_list, '-map', '0:v', '-map', '0:a?',
+                                '-r', '30', '-s', '1080x1920'] + enc_opts +
+                                ['-c:a', 'aac', '-b:a', '192k', '-movflags', '+faststart', out_path],
+                               capture_output=True, creationflags=CF, timeout=7200)
+                try: os.remove(concat_list)
+                except: pass
+                if mr.returncode == 0 and os.path.getsize(out_path) > 10000:
+                    merged_files.append((out_path, show_name, folder_path))
+                else:
+                    print(f"  ❌ 合并失败(返回码={mr.returncode})")
+        pbar_m.update(1)
+    pbar_m.close()
+
+    if not merged_files:
+        print("❌ 合并失败"); shutil.rmtree(merge_tmp, ignore_errors=True); return
+    print(f"\n  合并完成: {len(merged_files)} 个文件")
+
+    # ── 阶段1: 模式12 逐个处理 ──
+    print("\n" + "=" * 50)
+    print("  阶段1: 模式12 去重处理")
+    print("=" * 50)
+    success = 0
+    pbar = ProgressBar(len(merged_files), "去重")
+
+    import datetime as _dt
+    _folder_outs = {}  # 子文件夹 → 输出目录映射
+    for i, (mvp, show_name, folder_path) in enumerate(merged_files, 1):
+        # 每个子文件夹独立输出目录（同名合并）
+        if folder_path not in _folder_outs:
+            ds = f"{_dt.date.today().month}月{_dt.date.today().day}日"
+            od = os.path.join(folder_path, f"去重后视频{ds}")
+            c = 1
+            while os.path.exists(od): od = os.path.join(folder_path, f"{c}_去重后视频{ds}"); c += 1
+            os.makedirs(od, exist_ok=True)
+            _folder_outs[folder_path] = od
+            print(f"  📁 输出目录: {od}")
+        output_dir = _folder_outs[folder_path]
+        pbar.set_description(f"[{i}/{len(merged_files)}] {os.path.basename(mvp)[:25]}")
+        t_video = time.time()
+        if run_mode12_single(mvp, b_files[(i-1) % len(b_files)], output_dir, use_gpu, show_name):
+            success += 1
+            print(f"  ✅ [{i}/{len(merged_files)}] {os.path.basename(mvp)[:40]} | ⏱️ {_fmt_time(time.time() - t_video)}")
+        pbar.update(1)
+    pbar.close()
+
+    # ── 伪时长（遍历所有子文件夹输出目录）──
+    if success > 0:
+        from pseudo_duration import apply_pseudo_duration
+        all_out = []
+        for fod in _folder_outs.values():
+            all_out.extend([os.path.join(fod, f) for f in os.listdir(fod) if f.endswith('_去重.mp4')])
+        if all_out:
+            pbar2 = ProgressBar(len(all_out), "伪时长"); patch_ok = 0
+            for fp in all_out:
+                if apply_pseudo_duration(fp, mode='boost')[0]: patch_ok += 1
+                pbar2.update(1)
+            pbar2.close()
+            print(f"  伪时长: {patch_ok}/{len(all_out)}")
+
+    shutil.rmtree(merge_tmp, ignore_errors=True)
+    print(f"\n=== 模式13 完成 === 成功: {success}/{len(merged_files)}")
+    print(f"⏱️ [模式13] 总耗时: {_fmt_time(time.time() - t_batch)}")
+
+
+def run_mode12_single(video_path, b_video_path, output_dir, use_gpu, show_name):
+    """模式12 单视频处理（供模式13调用）"""
+    import tempfile, shutil, subprocess, time, re, random
+    from ab_processor import ab_blend
+    from video_processor_simple import VideoProcessor
+
+    name = os.path.splitext(os.path.basename(video_path))[0]
+    tmp_dir = tempfile.mkdtemp(prefix="m13s_")
+    tmp_silent = os.path.join(tmp_dir, f"{name}_silent.mp4")
+    tmp_wrap = os.path.join(tmp_dir, f"{name}_wrap.mp4")
+    final_out = os.path.join(output_dir, f"{name}_去重.mp4")
+    tmp_audio = os.path.join(tmp_dir, "audio.m4a")
+    CF = 0x08000000
+
+    try:
+        print(f"  ⏳ 开始去重: {os.path.basename(video_path)}")
+        # FFmpeg
+        base = os.path.dirname(__file__)
+        import glob as _glob
+        FFMPEG_EXE = "ffmpeg"
+        for pat in ["ffmpeg-*-full_build/ffmpeg-*-full_build/bin/ffmpeg.exe", "ffmpeg-*-full_build/bin/ffmpeg.exe"]:
+            m = sorted(_glob.glob(os.path.join(base, pat)), reverse=True)
+            if m: FFMPEG_EXE = m[0]; break
+
+        # 提取音频
+        print(f"    [1/6] 提取音频...", end='', flush=True)
+        has_audio = subprocess.run([FFMPEG_EXE, '-y', '-i', video_path, '-vn', '-c:a', 'copy', tmp_audio],
+                                   capture_output=True, creationflags=CF, timeout=60).returncode == 0
+        if not has_audio: tmp_audio = None
+        print(f" OK")
+
+        # PLUGINS + vspipe
+        print(f"    [2/6] 初始化 VapourSynth...", end='', flush=True)
+        PLUGINS = os.path.join(os.path.dirname(__file__), "vs-plugins")
+        os.environ['PATH'] = PLUGINS + ';' + os.path.join(PLUGINS, 'vsmlrt-cuda') + ';' + os.environ.get('PATH', '')
+        _vspipe_candidates = [
+            os.path.join(os.path.dirname(sys.executable), "Scripts", "vspipe.exe"),
+            os.path.join(PLUGINS, "vspipe.exe"), "vspipe.exe"]
+        vspipe_exe = None
+        for c in _vspipe_candidates:
+            if c == "vspipe.exe" or os.path.exists(c): vspipe_exe = c; break
+        print(f" vspipe={vspipe_exe}")
+
+        # VPY 脚本
+        print(f"    [3/6] 写VPY脚本...", end='', flush=True)
+        vpy_script = os.path.join(tmp_dir, "rife.vpy")
+        base_dir_fwd = os.path.dirname(__file__).replace('\\', '/')
+        plugins_fwd = PLUGINS.replace('\\', '/')
+        vp_fwd = video_path.replace('\\', '/')
+        ffindex_dir = os.path.join(os.path.dirname(__file__), "ffindex_cache")
+        os.makedirs(ffindex_dir, exist_ok=True)
+        ffindex_cache = os.path.join(ffindex_dir, os.path.basename(video_path))
+        if os.path.exists(ffindex_cache): os.remove(ffindex_cache)
+
+        cpu_threads = max(2, (os.cpu_count() or 4) - 2)
+        rand_fps = random.randint(57, 62)
+        with open(vpy_script, 'w', encoding='utf-8') as f:
+            f.write(f'''
+import vapoursynth as vs, sys, os, math
+sys.path.insert(0, r"{base_dir_fwd}")
+core = vs.core
+core.max_cache_size = 4000
+core.num_threads = {cpu_threads}
+core.std.LoadPlugin(os.path.join(r"{plugins_fwd}", "ffms2.dll"))
+core.std.LoadPlugin(os.path.join(r"{plugins_fwd}", "vstrt.dll"))
+from vsmlrt import RIFE, RIFEModel, BackendV2
+src = core.ffms2.Source(r"{vp_fwd}", cachefile=r"{ffindex_cache}")
+orig_w, orig_h = src.width, src.height
+pad_w = math.ceil(orig_w / 32) * 32
+pad_h = math.ceil(orig_h / 32) * 32
+if orig_w != pad_w or orig_h != pad_h:
+    src = core.std.AddBorders(src, right=pad_w - orig_w, bottom=pad_h - orig_h)
+src = core.resize.Bicubic(src, format=vs.RGBS, matrix_in_s="709")
+clip = RIFE(src, multi=2, model=RIFEModel.v4_6, backend=BackendV2.TRT(fp16=True, num_streams=1, workspace=4096))
+clip = core.std.AssumeFPS(clip, fpsnum={rand_fps}, fpsden=1)
+if orig_w != pad_w or orig_h != pad_h:
+    clip = core.std.Crop(clip, right=pad_w - orig_w, bottom=pad_h - orig_h)
+clip = core.resize.Bicubic(clip, format=vs.YUV420P8, matrix_s="709")
+clip.set_output()
+''')
+
+        # 水印
+        wm_text = '© ' + show_name
+        fontfile = ''
+        for fc in ['C\\:/Windows/Fonts/simhei.ttf', 'C\\:/Windows/Fonts/msyh.ttc']:
+            if os.path.exists(fc.replace('\\:', ':')): fontfile = ":fontfile='" + fc + "'"; break
+        if fontfile:
+            wm_fs = random.randint(16, 20)
+            wm_op = random.uniform(0.08, 0.12)
+            wm_xa = random.uniform(0.30, 0.50)
+            wm_xf = random.uniform(0.10, 0.20)
+            wm_ya = random.uniform(0.20, 0.40)
+            wm_yf = random.uniform(0.15, 0.25)
+            wm_x0 = random.uniform(0.25, 0.35)
+            wm_y0 = random.uniform(0.30, 0.40)
+            wm_filter = ("drawtext=text='" + wm_text + "'" + fontfile +
+                         f":fontsize={wm_fs}:fontcolor=white@{wm_op:.2f}:bordercolor=black@{wm_op:.2f}:borderw=1:"
+                         f"x=W*{wm_x0:.3f}+W*{wm_xa:.3f}*sin(t*{wm_xf:.3f}):y=H*{wm_y0:.3f}+H*{wm_ya:.3f}*cos(t*{wm_yf:.3f})")
+            nvenc_cmd = [FFMPEG_EXE, '-y', '-i', 'pipe:', '-vf', wm_filter,
+                         '-c:v', 'h264_nvenc', '-preset', 'p1', '-pix_fmt', 'yuv420p',
+                         '-an', '-movflags', '+faststart', tmp_silent]
+        else:
+            nvenc_cmd = [FFMPEG_EXE, '-y', '-i', 'pipe:', '-c:v', 'h264_nvenc',
+                         '-preset', 'p1', '-pix_fmt', 'yuv420p', '-an', '-movflags', '+faststart', tmp_silent]
+
+        print(f"    [4/6] TRT RIFE 推理+编码...", end='', flush=True)
+        vsp = subprocess.Popen([vspipe_exe, '-c', 'y4m', vpy_script, '-'],
+                       stdout=subprocess.PIPE, stderr=subprocess.PIPE, creationflags=CF)
+        nvenc = subprocess.Popen(nvenc_cmd, stdin=vsp.stdout, stdout=subprocess.DEVNULL,
+                         stderr=subprocess.PIPE, creationflags=CF)
+        vsp.stdout.close()
+        try: _, nvenc_stderr_data = nvenc.communicate(timeout=7200)
+        except subprocess.TimeoutExpired: nvenc.kill(); vsp.kill(); nvenc_stderr_data = None
+        vsp.wait()
+        if vsp.returncode != 0 or nvenc.returncode != 0:
+            print(f"    ❌ RIFE失败: vsp返回码={vsp.returncode}, nvenc返回码={nvenc.returncode}")
+            try:
+                vsp_err = vsp.stderr.read().decode('utf-8', errors='ignore')
+                if vsp_err.strip():
+                    print(f"    [vpy stderr]:")
+                    for l in vsp_err.strip().split('\n')[-15:]:
+                        print(f"      {l.strip()[:200]}")
+            except:
+                print(f"    [vpy stderr读取失败]")
+            if nvenc_stderr_data:
+                try:
+                    nv_err = nvenc_stderr_data.decode('utf-8', errors='ignore')
+                    if nv_err.strip():
+                        print(f"    [ffmpeg stderr]:")
+                        for l in nv_err.strip().split('\n')[-5:]:
+                            print(f"      {l.strip()[:200]}")
+                except:
+                    print(f"    [ffmpeg stderr读取失败]")
+            shutil.rmtree(tmp_dir, ignore_errors=True); return False
+
+        print(f"    [4/6] OK")
+        # 验证输出
+        if not os.path.exists(tmp_silent):
+            print(f"    ❌ 输出文件不存在: {tmp_silent}")
+            shutil.rmtree(tmp_dir, ignore_errors=True); return False
+        if os.path.getsize(tmp_silent) < 10000:
+            print(f"    ❌ 输出文件过小: {os.path.getsize(tmp_silent)} bytes")
+            shutil.rmtree(tmp_dir, ignore_errors=True); return False
+
+        print(f"    [5/6] AB包裹...", end='', flush=True)
+        # AB包裹（先混流音频再送 ab_blend，避免 audio_path 触发 reinit filters）
+        tmp_muxed = os.path.join(tmp_dir, f"{name}_muxed.mp4")
+        if has_audio and tmp_audio and os.path.exists(tmp_audio):
+            mux_r = subprocess.run([FFMPEG_EXE, '-y', '-i', tmp_silent, '-i', tmp_audio,
+                           '-c:v', 'copy', '-c:a', 'aac', '-b:a', '192k',
+                           '-shortest', '-movflags', '+faststart', tmp_muxed],
+                          capture_output=True, creationflags=CF, timeout=300)
+            ab_input = tmp_muxed if mux_r.returncode == 0 else tmp_silent
+        else:
+            shutil.copy2(tmp_silent, tmp_muxed)
+            ab_input = tmp_muxed
+        if not ab_blend(ab_input, b_video_path, tmp_wrap, use_gpu):
+            shutil.rmtree(tmp_dir, ignore_errors=True); return False
+
+        print(f"    [5/6] OK")
+        print(f"    [6/6] Mode6增强...", end='', flush=True)
+        # Mode6增强
+        proc = VideoProcessor(tmp_wrap, final_out, {'use_gpu': use_gpu, 'aggressive': True, 'mode6': True})
+        if not proc.run():
+            shutil.rmtree(tmp_dir, ignore_errors=True); return False
+
+        print(f"    [6/6] OK")
+        # 元数据
+        from video_processor_simple import find_best_ffmpeg
+        subprocess.run([find_best_ffmpeg(), '-y', '-i', final_out, '-c', 'copy', '-movflags', '+faststart',
+                        ] + _meta_opts() + ['-metadata', 'comment=原创内容',
+                        final_out + '.m.mp4'], capture_output=True, creationflags=CF, timeout=120)
+        if os.path.exists(final_out + '.m.mp4'): os.replace(final_out + '.m.mp4', final_out)
+
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+        return True
+    except Exception as e:
+        print(f"\n  ❌ {name}: {e}")
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+        return False
 
 
 def ab_processor_get_duration(video_path):
     """Helper: get video duration for mode11"""
     from ab_processor import get_video_info
     return get_video_info(video_path)['duration']
-
 
 
 def ab_processor_get_ffmpeg():
@@ -1260,15 +1724,20 @@ def batch_process(input_dir, config):
 def batch_process_ai(input_dir, config):
     """AI增强批量处理 - 使用 main_ultimate.py"""
     import os
-    from main_ultimate import process_video_with_ai, get_video_files, check_all_models, AI_MODELS, show_model_info
-    
+    try:
+        from main_ultimate import process_video_with_ai, get_video_files, check_all_models, AI_MODELS, show_model_info
+    except ModuleNotFoundError:
+        print("  ⚠️ AI增强模块不可用(main_ultimate.py缺失)")
+        print("  回退到标准GPU模式")
+        return batch_process(input_dir, {'use_gpu': True})
+
     # 检查并显示AI模型
     check_all_models()
     show_model_info()
-    
+
     # 获取视频文件
     video_files = get_video_files(input_dir)
-    
+
     if not video_files:
         print("未找到视频文件")
         return (0, None, [])
@@ -1341,10 +1810,10 @@ def batch_process_ai(input_dir, config):
         return batch_process(input_dir, {'use_gpu': True, 'use_ai': False})
 
     print(f"\n  已启用: {', '.join(enabled)}")
-    
+
     # 选择输出目录
     output_dir = get_output_dir(input_dir)
-    
+
     # 处理视频
     from progress_utils import ProgressBar
     success_count = 0
@@ -1373,80 +1842,56 @@ def batch_process_ai(input_dir, config):
     print(f"成功: {success_count}/{len(video_files)}")
     return (success_count, output_dir, processed_paths)
 
-def get_input_dir():
-    """获取输入目录"""
-    if len(sys.argv) > 1:
-        input_dir = sys.argv[1]
-        if os.path.isdir(input_dir):
-            return input_dir
-    
+def _ask_video_dir():
+    """询问视频目录（模式1-7,9-12 共用）"""
+    if len(sys.argv) > 1 and os.path.isdir(sys.argv[1]):
+        print(f"使用命令行参数作为目录: {sys.argv[1]}")
+        return sys.argv[1]
     return safe_input("请输入视频目录路径: ").strip()
 
 def main():
     """主函数"""
     print_banner()
-
-    # 检查环境(仅运行一次)
     gpu_available = check_environment()
-
-    # 获取初始输入目录
-    input_dir = get_input_dir()
 
     while True:
         try:
-            if not os.path.isdir(input_dir):
-                print("❌ 无效的目录路径")
-                input_dir = safe_input("请重新输入视频目录路径: ").strip()
+            print_menu()
+            choice = safe_input("请选择模式 (1/2/3/4/5/6/7/8/9/10/11/12/13): ").strip()
+
+            if choice == '8':
+                run_mode8()
+            elif choice in ('7', '9', '12', '13'):
+                d = _ask_video_dir()
+                if not os.path.isdir(d): print("❌ 无效目录"); continue
+                if choice == '7': run_mode7(d)
+                elif choice == '9': run_mode9(d)
+                elif choice == '12': run_mode12(d)
+                elif choice == '13': run_mode13(d)
+            elif choice in ('1', '2', '3', '4', '5', '6', '10', '11'):
+                d = _ask_video_dir()
+                if not os.path.isdir(d): print("❌ 无效目录"); continue
+                if choice == '1': run_standard_mode(d)
+                elif choice == '2':
+                    if not gpu_available: print("⚠️  GPU不可用,将使用CPU模式")
+                    run_gpu_mode(d)
+                elif choice == '3': run_ai_mode(d)
+                elif choice == '4': run_custom_mode(d)
+                elif choice == '5':
+                    if not gpu_available: print("⚠️  GPU不可用,将使用CPU编码")
+                    run_mode5(d)
+                elif choice == '6':
+                    if not gpu_available: print("⚠️  GPU不可用,将使用CPU编码")
+                    run_mode6(d)
+                elif choice == '10': run_mode10(d)
+                elif choice == '11': run_mode11(d)
+            else:
+                print("无效选择")
                 continue
 
-            # 显示菜单
-            print_menu()
-
-            # 获取用户选择
-            choice = safe_input("请选择模式 (1/2/3/4/5/6/7/8/9/10/11/12): ").strip()
-
-            # 根据选择运行对应模式
-            if choice == '1':
-                run_standard_mode(input_dir)
-            elif choice == '2':
-                if not gpu_available:
-                    print("⚠️  GPU不可用,将使用CPU模式")
-                run_gpu_mode(input_dir)
-            elif choice == '3':
-                run_ai_mode(input_dir)
-            elif choice == '4':
-                run_custom_mode(input_dir)
-            elif choice == '5':
-                if not gpu_available:
-                    print("⚠️  GPU不可用,将使用CPU编码")
-                run_mode5(input_dir)
-            elif choice == '6':
-                if not gpu_available:
-                    print("⚠️  GPU不可用,将使用CPU编码")
-                run_mode6(input_dir)
-            elif choice == '7':
-                run_mode7(input_dir)
-            elif choice == '8':
-                run_mode8()
-            elif choice == '9':
-                run_mode9(input_dir)
-            elif choice == '10':
-                run_mode10(input_dir)
-            elif choice == '11':
-                run_mode11(input_dir)
-            elif choice == '12':
-                run_mode12(input_dir)
-            else:
-                print("无效选择,默认使用GPU加速模式")
-                run_gpu_mode(input_dir)
-
-            # 处理完成后询问是否继续
             print("\n" + "-" * 40)
             next_action = safe_input("是否继续使用脚本？(y/n): ").strip().lower()
-
-            if next_action == 'y':
-                input_dir = get_input_dir()
-            else:
+            if next_action != 'y':
                 print("已退出")
                 break
 
